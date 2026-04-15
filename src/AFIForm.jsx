@@ -1,5 +1,37 @@
 import { useState, useRef } from "react";
 
+// ── Compression image avant upload ──────────────────────────────────────────
+async function compressImage(file, maxWidth = 1500, quality = 0.82) {
+  // Si c'est pas une image ou déjà petit (<2MB), pas besoin de compresser
+  if (!file.type.startsWith("image/") || file.size < 2 * 1024 * 1024) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxWidth / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { resolve(file); return; }
+          const compressed = new File([blob], file.name.replace(/.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+          resolve(compressed);
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 const QUESTIONS = [
   { slug: "language", type: "radio", required: true,
     label: { fr: "Langue / Language", en: "Langue / Language" },
@@ -672,18 +704,20 @@ export default function AFIForm() {
     try {
       const hash = "AFI-" + Math.random().toString(36).substring(2,8).toUpperCase();
 
-      // Séparer les fichiers du payload JSON
-      const fileFields = ["photo_required", "photo_optional", "purchase_order_file"];
+      // Séparer les fichiers du payload JSON + compresser les images
       const payloadData = {};
-      const filesToUpload = [];
+      const rawFiles = [];
 
       Object.entries(answers).forEach(([key, val]) => {
         if (val instanceof File) {
-          filesToUpload.push(val);
+          rawFiles.push(val);
         } else {
           payloadData[key] = val;
         }
       });
+
+      // Compression parallèle de toutes les images
+      const filesToUpload = await Promise.all(rawFiles.map(f => compressImage(f)));
 
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
