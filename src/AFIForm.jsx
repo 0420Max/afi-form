@@ -589,8 +589,23 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total }) 
           border: `2px dashed ${v ? A : BORDER}`, borderRadius: 8, padding: "18px 16px",
           textAlign: "center", cursor: "pointer", background: v ? AL : BG, transition: "all 0.15s",
         }}>
-          <input ref={fRef} type="file" accept="image/*,.pdf" style={{ display: "none" }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) onChange(q.slug, f); }} />
+          <input ref={fRef} type="file" accept="image/jpeg,image/png,image/heic,image/heif,image/webp,.pdf" style={{ display: "none" }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              // Bloquer les fichiers RAW (DNG, ARW, CR2, etc.)
+              const rawExts = ['.dng', '.arw', '.cr2', '.cr3', '.nef', '.orf', '.raf', '.rw2', '.pef', '.srw'];
+              const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+              if (rawExts.includes(ext) || f.type === '') {
+                const msg = lang === 'fr'
+                  ? '⚠️ Format RAW non supporté. Désactivez le mode ProRAW dans votre appareil photo et reprenez la photo en JPEG ou HEIC.'
+                  : '⚠️ RAW format not supported. Disable ProRAW mode in your camera app and retake the photo in JPEG or HEIC.';
+                alert(msg);
+                e.target.value = '';
+                return;
+              }
+              onChange(q.slug, f);
+            }} />
           <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
           <div style={{ fontSize: 12, color: v ? A : MUTED, fontWeight: v ? 500 : 400 }}>
             {v ? `✅ ${v instanceof File ? v.name : v}` : (lang === "fr" ? "Cliquer pour sélectionner un fichier" : "Click to select a file")}
