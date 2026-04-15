@@ -505,6 +505,12 @@ export default function AFIForm() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      const emailVal = answers.email || answers.ft_client_email || "";
+      if (!emailVal.includes("@") || !emailVal.includes(".")) {
+        alert(lang === "fr" ? "⚠️ Veuillez entrer une adresse courriel valide (ex: nom@domaine.com)" : "⚠️ Please enter a valid email address (ex: name@domain.com)");
+        setSubmitting(false);
+        return;
+      }
       const hash = "AFI-" + Math.random().toString(36).substring(2,8).toUpperCase();
       const payload = {
         ...answers,
@@ -523,8 +529,8 @@ export default function AFIForm() {
       setSubmitted(true);
     } catch (err) {
       alert(lang === "fr"
-        ? "Une erreur est survenue. Veuillez réessayer ou nous contacter directement."
-        : "An error occurred. Please try again or contact us directly.");
+        ? "⚠️ Une erreur est survenue. Vérifiez votre courriel et réessayez, ou contactez-nous au 1-888-AFI-POOL."
+        : "⚠️ An error occurred. Please check your email and try again, or call us at 1-888-AFI-POOL.");
     } finally {
       setSubmitting(false);
     }
