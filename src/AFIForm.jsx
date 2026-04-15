@@ -54,9 +54,9 @@ const QUESTIONS = [
     placeholder: { fr: "Jean Tremblay", en: "John Smith" },
     show_if: (a) => a.client_type === "employee" && !!a.ft_description,
   },
-  { slug: "ft_client_address", type: "text", required: true,
+  { slug: "ft_client_address", type: "address", required: true,
     label: { fr: "📍 Adresse du client", en: "📍 Client address" },
-    placeholder: { fr: "123 rue des Érables, Québec, QC G1A 1A1", en: "123 Main St, Quebec City, QC" },
+    placeholder: { fr: "123 rue des Érables, Québec, QC G1A 1A1", en: "123 Main St, Quebec City, QC G1A 1A1" },
     show_if: (a) => a.client_type === "employee" && !!a.ft_client_name,
   },
   { slug: "ft_client_email", type: "email", required: true,
@@ -262,7 +262,7 @@ const QUESTIONS = [
       if (a.request_type === "rma") return a.return_method != null;
       return false;
     } },
-  { slug: "address", type: "text", required: true,
+  { slug: "address", type: "address", required: true,
     label: { fr: "📍 Adresse complète", en: "📍 Full Address" },
     placeholder: { fr: "123 rue des Érables, Québec, QC G1A 1A1", en: "123 Main St, Quebec City, QC G1A 1A1" },
     show_if: (a) => !!a.full_name },
@@ -298,12 +298,67 @@ const QUESTIONS = [
     show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.gdpr_consent === true },
 ];
 
+// ─── VALIDATION LOGIC ────────────────────────────────────────────────────────
+
+function validatePhone(value, lang) {
+  if (!value || value.trim() === "") return null; // optional field — no error if empty
+  const digits = value.replace(/\D/g, "");
+  if (digits.length !== 10) {
+    return lang === "fr"
+      ? "Le numéro de téléphone doit contenir exactement 10 chiffres (ex: 4185550000)"
+      : "Phone number must contain exactly 10 digits (ex: 4185550000)";
+  }
+  return null;
+}
+
+function validateEmail(value, lang) {
+  if (!value || value.trim() === "") return null;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  if (!emailRegex.test(value.trim())) {
+    return lang === "fr"
+      ? "Adresse courriel invalide — format attendu: nom@domaine.com"
+      : "Invalid email address — expected format: name@domain.com";
+  }
+  return null;
+}
+
+function validateAddress(value, lang) {
+  if (!value || value.trim() === "") return null;
+  const v = value.trim();
+  // Must contain at least: some text, a city hint, and a postal code (A1A 1A1 or A1A1A1)
+  const hasPostalCode = /[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d/.test(v);
+  const hasCommaOrMultiPart = v.includes(",") || v.split(" ").length >= 4;
+  if (!hasPostalCode) {
+    return lang === "fr"
+      ? "Veuillez inclure le code postal (ex: G1A 1A1)"
+      : "Please include a postal code (ex: G1A 1A1)";
+  }
+  if (!hasCommaOrMultiPart) {
+    return lang === "fr"
+      ? "Adresse incomplète — incluez la rue, la ville et le code postal"
+      : "Incomplete address — include street, city, and postal code";
+  }
+  return null;
+}
+
+function getFieldError(q, value, lang) {
+  if (q.type === "tel") return validatePhone(value, lang);
+  if (q.type === "email") return validateEmail(value, lang);
+  if (q.type === "address") return validateAddress(value, lang);
+  return null;
+}
+
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+
 const A = "#0e5f8a";
 const AL = "#e8f3f9";
 const BG = "#f8f7f4";
 const BORDER = "#e2ddd8";
 const TEXT = "#1a1714";
 const MUTED = "#8a847e";
+const ERROR_COLOR = "#c0392b";
+const ERROR_BG = "#fdecea";
+const ERROR_BORDER = "#e57373";
 
 function isAnswered(v) {
   if (v == null) return false;
@@ -314,9 +369,37 @@ function isAnswered(v) {
 
 function getVisible(ans) { return QUESTIONS.filter(q => q.show_if(ans)); }
 
-function QCard({ q, lang, answers, onChange, idx, total }) {
+// ─── INLINE ERROR COMPONENT ──────────────────────────────────────────────────
+
+function FieldError({ message }) {
+  if (!message) return null;
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 6,
+      padding: "6px 10px",
+      borderRadius: 6,
+      background: ERROR_BG,
+      border: `1px solid ${ERROR_BORDER}`,
+      fontSize: 12,
+      color: ERROR_COLOR,
+      fontWeight: 500,
+      lineHeight: 1.4,
+    }}>
+      <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
+      {message}
+    </div>
+  );
+}
+
+// ─── QUESTION CARD ────────────────────────────────────────────────────────────
+
+function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total }) {
   const v = answers[q.slug];
-  const done = isAnswered(v);
+  const error = fieldErrors[q.slug];
+  const done = isAnswered(v) && !error;
   const lbl = q.label[lang] || q.label.fr;
   const ph = q.placeholder ? (q.placeholder[lang] || q.placeholder.fr) : "";
   const fRef = useRef();
@@ -327,11 +410,27 @@ function QCard({ q, lang, answers, onChange, idx, total }) {
     onChange(q.slug, i === -1 ? [...cur, opt.value] : cur.filter(x => x !== opt.value));
   };
 
+  const hasError = !!error;
+
   const card = {
-    background: done ? AL : "#fff",
-    border: `1.5px solid ${done ? A : BORDER}`,
+    background: hasError ? ERROR_BG : (done ? AL : "#fff"),
+    border: `1.5px solid ${hasError ? ERROR_BORDER : (done ? A : BORDER)}`,
     borderRadius: 12, padding: "18px 16px", marginBottom: 10,
     transition: "border-color 0.2s, background 0.2s",
+  };
+
+  const inputStyle = {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: `1.5px solid ${hasError ? ERROR_BORDER : BORDER}`,
+    background: hasError ? "#fff5f5" : BG,
+    fontFamily: "inherit",
+    fontSize: 15,
+    outline: "none",
+    boxSizing: "border-box",
+    color: TEXT,
+    transition: "border-color 0.2s",
   };
 
   const optBtn = (sel) => ({
@@ -343,7 +442,7 @@ function QCard({ q, lang, answers, onChange, idx, total }) {
   });
 
   return (
-        <div id={"q-" + q.slug} style={card}>
+    <div id={"q-" + q.slug} style={card}>
       <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>
         {q.badge && answers.client_type === "employee"
           ? <span style={{ background: "#fff3cd", color: "#856404", padding: "2px 8px", borderRadius: 4, marginRight: 8 }}>{q.badge[lang] || q.badge.fr}</span>
@@ -396,12 +495,39 @@ function QCard({ q, lang, answers, onChange, idx, total }) {
         </div>
       )}
 
-      {["text","email","tel","date","address"].includes(q.type) && (
-        <input type={q.type === "address" ? "text" : q.type} value={v || ""} placeholder={ph}
-          onChange={e => onChange(q.slug, e.target.value || null)}
-          style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${BORDER}`,
-            background: BG, fontFamily: "inherit", fontSize: 15, outline: "none", boxSizing: "border-box",
-            color: TEXT }} />
+      {["text","email","tel","date"].includes(q.type) && (
+        <>
+          <input
+            type={q.type === "tel" ? "tel" : q.type}
+            value={v || ""}
+            placeholder={ph}
+            onChange={e => onChange(q.slug, e.target.value || null)}
+            onBlur={e => onBlur && onBlur(q.slug, e.target.value)}
+            style={inputStyle}
+          />
+          <FieldError message={error} />
+        </>
+      )}
+
+      {q.type === "address" && (
+        <>
+          <input
+            type="text"
+            value={v || ""}
+            placeholder={ph}
+            onChange={e => onChange(q.slug, e.target.value || null)}
+            onBlur={e => onBlur && onBlur(q.slug, e.target.value)}
+            style={inputStyle}
+          />
+          <FieldError message={error} />
+          {!error && !v && (
+            <div style={{ fontSize: 11, color: MUTED, marginTop: 5 }}>
+              {lang === "fr"
+                ? "Format: 123 rue des Érables, Québec, QC G1A 1A1"
+                : "Format: 123 Main St, Quebec City, QC G1A 1A1"}
+            </div>
+          )}
+        </>
       )}
 
       {q.type === "textarea" && (
@@ -458,22 +584,27 @@ function QCard({ q, lang, answers, onChange, idx, total }) {
   );
 }
 
+// ─── MAIN FORM ────────────────────────────────────────────────────────────────
+
 export default function AFIForm() {
   const [answers, setAnswers] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const lang = answers.language || "fr";
   const visible = getVisible(answers);
-  const answeredCount = visible.filter(q => isAnswered(answers[q.slug])).length;
+  const answeredCount = visible.filter(q => isAnswered(answers[q.slug]) && !fieldErrors[q.slug]).length;
   const progress = visible.length > 0 ? Math.round((answeredCount / visible.length) * 100) : 0;
-  const allRequiredDone = visible.filter(q => q.required).every(q => isAnswered(answers[q.slug]));
+
+  const hasValidationErrors = Object.values(fieldErrors).some(e => !!e);
+  const allRequiredDone = visible.filter(q => q.required).every(q => isAnswered(answers[q.slug]) && !fieldErrors[q.slug]);
   const isEmployee = answers.client_type === "employee";
-  const canSubmit = allRequiredDone && visible.length > 3 && (
+  const canSubmit = allRequiredDone && !hasValidationErrors && visible.length > 3 && (
     isEmployee
-      ? (!!answers.ft_client_name && !!answers.ft_client_email)
-      : (!!answers.full_name && !!answers.email)
+      ? (!!answers.ft_client_name && !!answers.ft_client_email && !fieldErrors.ft_client_email && !fieldErrors.ft_client_phone)
+      : (!!answers.full_name && !!answers.email && !fieldErrors.email && !fieldErrors.phone && !fieldErrors.address)
   );
 
   const handleChange = (slug, value) => {
@@ -488,29 +619,58 @@ export default function AFIForm() {
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "purchase_date","installed_by","maintained_by","description","photo_required","photo_optional","urgency"]);
 
-          // Auto-scroll vers la prochaine question
-    setTimeout(() => {
-      const visible = QUESTIONS.filter(q => q.show_if(next));
-      const currentIdx = visible.findIndex(q => q.slug === slug);
-      const nextQ = visible[currentIdx + 1];
-      if (nextQ) {
-        const el = document.getElementById("q-" + nextQ.slug);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }, 80);
+      // Clear error on change (re-validate on blur)
+      setFieldErrors(prev => ({ ...prev, [slug]: null }));
+
+      // Auto-scroll to next question
+      setTimeout(() => {
+        const visibleNow = QUESTIONS.filter(q => q.show_if(next));
+        const currentIdx = visibleNow.findIndex(q => q.slug === slug);
+        const nextQ = visibleNow[currentIdx + 1];
+        if (nextQ) {
+          const el = document.getElementById("q-" + nextQ.slug);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 80);
       return next;
     });
   };
 
+  const handleBlur = (slug, value) => {
+    const q = QUESTIONS.find(q => q.slug === slug);
+    if (!q) return;
+    const error = getFieldError(q, value, lang);
+    setFieldErrors(prev => ({ ...prev, [slug]: error }));
+    // If there's an error, clear the stored answer so required check fails
+    if (error) {
+      setAnswers(prev => ({ ...prev, [slug]: value })); // keep value so user can see & fix it
+    }
+  };
+
+  // Validate all fields on submit attempt
+  const validateAll = () => {
+    const errors = {};
+    visible.forEach(q => {
+      const val = answers[q.slug];
+      const error = getFieldError(q, val, lang);
+      if (error) errors[q.slug] = error;
+    });
+    setFieldErrors(prev => ({ ...prev, ...errors }));
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = async () => {
+    if (!validateAll()) {
+      // Scroll to first error
+      const firstErrorSlug = visible.find(q => fieldErrors[q.slug] || getFieldError(q, answers[q.slug], lang))?.slug;
+      if (firstErrorSlug) {
+        const el = document.getElementById("q-" + firstErrorSlug);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
     setSubmitting(true);
     try {
-      const emailVal = answers.email || answers.ft_client_email || "";
-      if (!emailVal.includes("@") || !emailVal.includes(".")) {
-        alert(lang === "fr" ? "⚠️ Veuillez entrer une adresse courriel valide (ex: nom@domaine.com)" : "⚠️ Please enter a valid email address (ex: name@domain.com)");
-        setSubmitting(false);
-        return;
-      }
       const hash = "AFI-" + Math.random().toString(36).substring(2,8).toUpperCase();
       const payload = {
         ...answers,
@@ -528,9 +688,13 @@ export default function AFIForm() {
       setTicketId(data.ticket_hash || hash);
       setSubmitted(true);
     } catch (err) {
-      alert(lang === "fr"
-        ? "⚠️ Une erreur est survenue. Vérifiez votre courriel et réessayez, ou contactez-nous au 1-888-AFI-POOL."
-        : "⚠️ An error occurred. Please check your email and try again, or call us at 1-888-AFI-POOL.");
+      // Inline error on submit failure — no alert()
+      setFieldErrors(prev => ({
+        ...prev,
+        _submit: lang === "fr"
+          ? "Une erreur est survenue. Vérifiez votre connexion et réessayez, ou contactez-nous au 1-888-AFI-POOL."
+          : "An error occurred. Check your connection and try again, or call us at 1-888-AFI-POOL."
+      }));
     } finally {
       setSubmitting(false);
     }
@@ -550,7 +714,7 @@ export default function AFIForm() {
         🎫 {ticketId}
       </div>
       <div style={{ marginTop: 24 }}>
-        <button onClick={() => { setAnswers({}); setSubmitted(false); }} style={{
+        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); }} style={{
           padding: "9px 20px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG,
           fontFamily: "inherit", fontSize: 13, cursor: "pointer", color: MUTED,
         }}>
@@ -585,8 +749,22 @@ export default function AFIForm() {
       )}
       {visible.map((q, i) => (
         <QCard key={q.slug} q={q} lang={lang} answers={answers}
-          onChange={handleChange} idx={i + 1} total={visible.length} />
+          onChange={handleChange} onBlur={handleBlur}
+          fieldErrors={fieldErrors}
+          idx={i + 1} total={visible.length} />
       ))}
+
+      {/* Submit error banner */}
+      {fieldErrors._submit && (
+        <div style={{
+          margin: "12px 0", padding: "12px 16px", borderRadius: 10,
+          background: ERROR_BG, border: `1.5px solid ${ERROR_BORDER}`,
+          fontSize: 13, color: ERROR_COLOR, fontWeight: 500, lineHeight: 1.5,
+        }}>
+          ⚠️ {fieldErrors._submit}
+        </div>
+      )}
+
       {canSubmit && (
         <div style={{ textAlign: "center", marginTop: 20, padding: "20px 0" }}>
           <button onClick={handleSubmit} disabled={submitting} style={{
