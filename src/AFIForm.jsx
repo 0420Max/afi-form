@@ -558,10 +558,10 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total }) 
           textAlign: "center", cursor: "pointer", background: v ? AL : BG, transition: "all 0.15s",
         }}>
           <input ref={fRef} type="file" accept="image/*,.pdf" style={{ display: "none" }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) onChange(q.slug, f.name); }} />
+            onChange={e => { const f = e.target.files?.[0]; if (f) onChange(q.slug, f); }} />
           <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
           <div style={{ fontSize: 12, color: v ? A : MUTED, fontWeight: v ? 500 : 400 }}>
-            {v ? `✅ ${v}` : (lang === "fr" ? "Cliquer pour sélectionner un fichier" : "Click to select a file")}
+            {v ? `✅ ${v instanceof File ? v.name : v}` : (lang === "fr" ? "Cliquer pour sélectionner un fichier" : "Click to select a file")}
           </div>
         </div>
       )}
@@ -661,7 +661,6 @@ export default function AFIForm() {
 
   const handleSubmit = async () => {
     if (!validateAll()) {
-      // Scroll to first error
       const firstErrorSlug = visible.find(q => fieldErrors[q.slug] || getFieldError(q, answers[q.slug], lang))?.slug;
       if (firstErrorSlug) {
         const el = document.getElementById("q-" + firstErrorSlug);
@@ -672,23 +671,41 @@ export default function AFIForm() {
     setSubmitting(true);
     try {
       const hash = "AFI-" + Math.random().toString(36).substring(2,8).toUpperCase();
-      const payload = {
-        ...answers,
-        ticket_hash: hash,
-        submitted_at: new Date().toISOString(),
-        origin: "web"
-      };
+
+      // Séparer les fichiers du payload JSON
+      const fileFields = ["photo_required", "photo_optional", "purchase_order_file"];
+      const payloadData = {};
+      const filesToUpload = [];
+
+      Object.entries(answers).forEach(([key, val]) => {
+        if (val instanceof File) {
+          filesToUpload.push(val);
+        } else {
+          payloadData[key] = val;
+        }
+      });
+
+      payloadData.ticket_hash = hash;
+      payloadData.submitted_at = new Date().toISOString();
+      payloadData.origin = "web";
+
+      // Construire FormData
+      const formData = new FormData();
+      formData.append("payload", JSON.stringify(payloadData));
+      filesToUpload.forEach(file => {
+        formData.append("photos", file, file.name);
+      });
+
       const res = await fetch("https://afi-ops-backend.onrender.com/api/form/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: formData,
+        // Ne pas mettre Content-Type — le browser le set automatiquement avec boundary
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setTicketId(data.ticket_hash || hash);
       setSubmitted(true);
     } catch (err) {
-      // Inline error on submit failure — no alert()
       setFieldErrors(prev => ({
         ...prev,
         _submit: lang === "fr"
