@@ -343,7 +343,7 @@ function QCard({ q, lang, answers, onChange, idx, total }) {
   });
 
   return (
-    <div style={card}>
+        <div id={"q-" + q.slug} style={card}>
       <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>
         {q.badge && answers.client_type === "employee"
           ? <span style={{ background: "#fff3cd", color: "#856404", padding: "2px 8px", borderRadius: 4, marginRight: 8 }}>{q.badge[lang] || q.badge.fr}</span>
@@ -487,6 +487,17 @@ export default function AFIForm() {
         "part_installed","rma_resolution","return_method"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "purchase_date","installed_by","maintained_by","description","photo_required","photo_optional","urgency"]);
+
+          // Auto-scroll vers la prochaine question
+    setTimeout(() => {
+      const visible = QUESTIONS.filter(q => q.show_if(next));
+      const currentIdx = visible.findIndex(q => q.slug === slug);
+      const nextQ = visible[currentIdx + 1];
+      if (nextQ) {
+        const el = document.getElementById("q-" + nextQ.slug);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 80);
       return next;
     });
   };
