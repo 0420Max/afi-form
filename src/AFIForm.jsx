@@ -431,6 +431,41 @@ function FieldError({ message }) {
 
 // ─── PRICING INFO (divulgation tarifaire avant pricing_consent) ─────────────
 
+/**
+ * Construit une string concise reflétant ce que PricingInfo affiche au
+ * client. Utilisée pour serializer le snapshot dans le payload submit
+ * (champ pricing_info_displayed) → loggé côté backend dans Monday.
+ *
+ * Réutilise `tarifs` déjà en mémoire (pas de fetch supplémentaire).
+ * Retourne null pour incomplete (pas de frais) ou si serviceType absent.
+ */
+function buildPricingInfoDisplayed(serviceType, tarifs) {
+  if (!serviceType || serviceType === "incomplete") return null;
+
+  const get = (code) => {
+    const t = tarifs.find(x => x.code === code);
+    return t && t.montant != null ? Number(t.montant) : null;
+  };
+  const dollars = (v) => v != null ? `${v} $` : "—";
+
+  if (serviceType === "opening")  return `Forfait ouverture : ${dollars(get("SVC_OUVERTURE"))} + taxes`;
+  if (serviceType === "closing")  return `Forfait fermeture : ${dollars(get("SVC_FERMETURE"))} + taxes`;
+  if (serviceType === "plumbing") return `Forfait raccordement : ${dollars(get("SVC_RACCORDEMENT"))} + taxes`;
+  if (serviceType === "pressure") {
+    return `Forfait test de pression : ${dollars(get("SVC_TEST_PRESSION"))} + déplacement ${dollars(get("DEP_75"))} (≤75 km) ou ${dollars(get("DEP_300"))} (>75 km) + taxes`;
+  }
+  if (serviceType === "break" || serviceType === "gelcoat") {
+    const mo = get("MO_REG");
+    const moStr = mo != null ? `${mo} $/h` : "—";
+    const suffix = serviceType === "gelcoat" ? " (gelcoat sur devis)" : "";
+    return `Main-d'œuvre : ${moStr} — Déplacement : ${dollars(get("DEP_75"))} (≤75 km) ou ${dollars(get("DEP_300"))} (>75 km)${suffix}`;
+  }
+  if (serviceType === "warranty") {
+    return "Garantie : pièce remplacée sans frais si couverte — déplacement et main-d'œuvre facturables sauf avis contraire";
+  }
+  return null;
+}
+
 function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
   if (!serviceType || serviceType === "incomplete") return null;
 
@@ -904,6 +939,14 @@ export default function AFIForm() {
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
+
+      // Snapshot textuel de ce que PricingInfo a affiché — utilisé côté
+      // backend pour le log Monday du consentement tarifaire. On utilise
+      // `tarifs` déjà en mémoire (pas de fetch supplémentaire).
+      if (answers.pricing_consent === true) {
+        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs);
+        if (displayed) payloadData.pricing_info_displayed = displayed;
+      }
 
       // Construire FormData
       const formData = new FormData();
