@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 async function compressImage(file, maxWidth = 1500, quality = 0.82) {
@@ -325,6 +325,9 @@ const QUESTIONS = [
   { slug: "gdpr_consent", type: "checkbox_single", required: true,
     label: { fr: "🔒 J'accepte que mes informations soient utilisées pour traiter ma demande", en: "🔒 I agree that my information will be used to process my request" },
     show_if: (a) => a.client_type === "residential" && !!a.email },
+  { slug: "pricing_info", type: "pricing_info", required: false,
+    label: { fr: "💡 Tarifs applicables AFI", en: "💡 Applicable AFI rates" },
+    show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.service_type != null },
   { slug: "pricing_consent", type: "checkbox_single", required: true,
     label: { fr: "💰 Je comprends que les déplacements et interventions sont facturables selon la grille tarifaire AFI", en: "💰 I understand that travel and service calls are billable according to AFI's rate schedule" },
     show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.gdpr_consent === true },
@@ -426,9 +429,156 @@ function FieldError({ message }) {
   );
 }
 
+// ─── PRICING INFO (divulgation tarifaire avant pricing_consent) ─────────────
+
+function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
+  if (!serviceType || serviceType === "incomplete") return null;
+
+  const fmt = (code) => {
+    const t = tarifs.find(x => x.code === code);
+    if (!t || t.montant == null) return null;
+    return Number(t.montant).toLocaleString("fr-CA", { maximumFractionDigits: 0 });
+  };
+  const dollars = (v) => v != null ? `${v} $` : "—";
+
+  const wrap = {
+    background: AL,
+    border: `1.5px solid ${A}`,
+    borderRadius: 12,
+    padding: "18px 16px",
+    marginBottom: 10,
+    fontSize: 14,
+    lineHeight: 1.55,
+    color: TEXT,
+  };
+  const title = (
+    <div style={{ fontSize: 13, fontWeight: 700, color: A, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+      💡 {lang === "fr" ? "Tarifs applicables AFI" : "Applicable AFI rates"}
+    </div>
+  );
+
+  if (tarifsError) {
+    return (
+      <div id="q-pricing_info" style={wrap}>
+        {title}
+        <div>
+          {lang === "fr"
+            ? "Les tarifs en vigueur vous seront communiqués par notre équipe. Main-d'œuvre, déplacement et forfaits selon la grille tarifaire AFI."
+            : "Current rates will be communicated by our team. Labor, travel and packages according to AFI's rate schedule."}
+        </div>
+      </div>
+    );
+  }
+
+  let body = null;
+
+  if (serviceType === "opening" || serviceType === "closing") {
+    const code = serviceType === "opening" ? "SVC_OUVERTURE" : "SVC_FERMETURE";
+    const url = serviceType === "opening"
+      ? "https://discountpoolsupplies.ca/products/service-douverture"
+      : "https://discountpoolsupplies.ca/products/service-de-fermeture";
+    const m = dollars(fmt(code));
+    body = (
+      <>
+        <div>
+          💰 {lang === "fr"
+            ? `Forfait ${m} — payable à la réservation. Taxes en sus.`
+            : `Package ${m} — payable upon booking. Taxes extra.`}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <a href={url} target="_blank" rel="noopener" style={{
+            display: "inline-block",
+            padding: "9px 14px",
+            borderRadius: 8,
+            background: A,
+            color: "#fff",
+            textDecoration: "none",
+            fontSize: 13,
+            fontWeight: 600,
+          }}>
+            🔗 {lang === "fr" ? "Payer en ligne" : "Pay online"}
+          </a>
+        </div>
+      </>
+    );
+  } else if (serviceType === "plumbing") {
+    const m = dollars(fmt("SVC_RACCORDEMENT"));
+    body = (
+      <div>
+        💰 {lang === "fr"
+          ? `Forfait raccordement ${m} (1re visite et visites subséquentes). Taxes en sus.`
+          : `Plumbing/commissioning package ${m} (first and subsequent visits). Taxes extra.`}
+      </div>
+    );
+  } else if (serviceType === "pressure") {
+    const svc = dollars(fmt("SVC_TEST_PRESSION"));
+    const d75 = dollars(fmt("DEP_75"));
+    const d300 = dollars(fmt("DEP_300"));
+    body = (
+      <div>
+        💰 {lang === "fr"
+          ? `Forfait test de pression ${svc} + frais de déplacement ${d75} (≤75 km) ou ${d300} (>75 km). Taxes en sus.`
+          : `Pressure test package ${svc} + travel fee ${d75} (≤75 km) or ${d300} (>75 km). Taxes extra.`}
+      </div>
+    );
+  } else if (serviceType === "break" || serviceType === "gelcoat") {
+    const mo = fmt("MO_REG");
+    const mos = mo != null ? `${mo} $/h` : "—";
+    const d75 = dollars(fmt("DEP_75"));
+    const d300 = dollars(fmt("DEP_300"));
+    body = (
+      <>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>
+          💰 {lang === "fr" ? "Tarifs applicables :" : "Applicable rates:"}
+        </div>
+        <ul style={{ margin: "0 0 10px 0", paddingLeft: 20 }}>
+          <li>{lang === "fr" ? "Main-d'œuvre" : "Labor"} : {mos}</li>
+          <li>{lang === "fr" ? "Déplacement" : "Travel"} : {d75} (≤75 km) {lang === "fr" ? "ou" : "or"} {d300} (&gt;75 km)</li>
+          <li>{lang === "fr"
+            ? "Le diagnostic est facturable même si aucune réparation n'est effectuée."
+            : "Diagnostic is billable even if no repair is performed."}</li>
+        </ul>
+        <div style={{ fontSize: 13, color: MUTED }}>
+          {lang === "fr"
+            ? "Taxes en sus. Une estimation est communiquée avant tout travail majeur."
+            : "Taxes extra. An estimate is provided before any major work."}
+          {serviceType === "gelcoat" && (
+            <> {lang === "fr"
+              ? "Le gelcoat fait l'objet d'un devis sur mesure."
+              : "Gelcoat work is quoted individually."}
+            </>
+          )}
+        </div>
+      </>
+    );
+  } else if (serviceType === "warranty") {
+    body = (
+      <div>
+        💰 {lang === "fr"
+          ? "Demande de garantie : si la pièce est couverte après validation, elle est remplacée sans frais. Les frais de déplacement et de main-d'œuvre demeurent facturables, sauf avis contraire."
+          : "Warranty request: if the part is covered after validation, it is replaced free of charge. Travel and labor fees remain billable, unless otherwise stated."}
+      </div>
+    );
+  } else {
+    return null;
+  }
+
+  return (
+    <div id="q-pricing_info" style={wrap}>
+      {title}
+      {body}
+    </div>
+  );
+}
+
 // ─── QUESTION CARD ────────────────────────────────────────────────────────────
 
-function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total }) {
+function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, tarifs, tarifsError }) {
+  // pricing_info : bloc d'affichage pur, pas une question
+  if (q.type === "pricing_info") {
+    return <PricingInfo serviceType={answers.service_type} tarifs={tarifs} tarifsError={tarifsError} lang={lang} />;
+  }
+
   const v = answers[q.slug];
   const error = fieldErrors[q.slug];
   const done = isAnswered(v) && !error;
@@ -639,10 +789,27 @@ export default function AFIForm() {
   const [submitted, setSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [tarifs, setTarifs] = useState([]);
+  const [tarifsError, setTarifsError] = useState(false);
+
+  // Fetch tarifs au montage — best effort, ne jamais bloquer le formulaire
+  useEffect(() => {
+    let cancelled = false;
+    fetch("https://afi-ops-backend.onrender.com/api/tarifs/public")
+      .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+      .then(data => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.tarifs) ? data.tarifs : [];
+        setTarifs(list);
+        if (list.length === 0) setTarifsError(true);
+      })
+      .catch(() => { if (!cancelled) setTarifsError(true); });
+    return () => { cancelled = true; };
+  }, []);
 
   const lang = answers.language || "fr";
   const visible = getVisible(answers);
-  const answeredCount = visible.filter(q => isAnswered(answers[q.slug]) && !fieldErrors[q.slug]).length;
+  const answeredCount = visible.filter(q => q.type === "pricing_info" || (isAnswered(answers[q.slug]) && !fieldErrors[q.slug])).length;
   const progress = visible.length > 0 ? Math.round((answeredCount / visible.length) * 100) : 0;
 
   const hasValidationErrors = Object.values(fieldErrors).some(e => !!e);
@@ -817,6 +984,7 @@ export default function AFIForm() {
         <QCard key={q.slug} q={q} lang={lang} answers={answers}
           onChange={handleChange} onBlur={handleBlur}
           fieldErrors={fieldErrors}
+          tarifs={tarifs} tarifsError={tarifsError}
           idx={i + 1} total={visible.length} />
       ))}
 
