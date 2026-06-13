@@ -826,6 +826,26 @@ export default function AFIForm() {
   const [submitting, setSubmitting] = useState(false);
   const [tarifs, setTarifs] = useState([]);
   const [tarifsError, setTarifsError] = useState(false);
+  const [source, setSource] = useState("");
+
+  // Prefill Félix (jalon 4a-3) : le SMS de l'agent vocal envoie
+  // ?tel=+1418…&source=felix — tel pré-remplit les champs téléphone des deux
+  // flots (10 chiffres locaux, format attendu par validatePhone), source est
+  // embarqué dans le payload de soumission (clé de réconciliation de la
+  // métrique items-filet vs soumissions).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const src = (params.get("source") || "").trim().slice(0, 32);
+    if (src) setSource(src);
+    const tel = (params.get("tel") || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+    if (tel.length === 10) {
+      setAnswers(prev => ({
+        ...prev,
+        phone: prev.phone || tel,
+        ft_client_phone: prev.ft_client_phone || tel,
+      }));
+    }
+  }, []);
 
   // Fetch tarifs au montage — best effort, ne jamais bloquer le formulaire
   useEffect(() => {
@@ -939,6 +959,8 @@ export default function AFIForm() {
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
+      // Réconciliation Félix (4a-3) : présent seulement si arrivé par ?source=
+      if (source) payloadData.source = source;
 
       // Snapshot textuel de ce que PricingInfo a affiché — utilisé côté
       // backend pour le log Monday du consentement tarifaire. On utilise
