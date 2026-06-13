@@ -816,49 +816,59 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   );
 }
 
+// ─── PREFILL FÉLIX (jalon 4a-3, corrigé 4a) ────────────────────────────────────
+// Lu UNE fois, dans les initialiseurs useState (pas un useEffect post-mount) :
+// l'état part déjà seedé, sans re-render parasite au montage qui pourrait
+// perturber le chargement des tarifs. Le SMS de l'agent vocal envoie
+// ?tel=+1418…&source=felix.
+function readFelixPrefill() {
+  let params;
+  try { params = new URLSearchParams(window.location.search); }
+  catch (_e) { return { answers: {}, source: "" }; }
+  const source = (params.get("source") || "").trim().slice(0, 32);
+  const tel = (params.get("tel") || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  const answers = {};
+  if (tel.length === 10) { answers.phone = tel; answers.ft_client_phone = tel; }
+  return { answers, source };
+}
+
 // ─── MAIN FORM ────────────────────────────────────────────────────────────────
 
 export default function AFIForm() {
-  const [answers, setAnswers] = useState({});
+  const [answers, setAnswers] = useState(() => readFelixPrefill().answers);
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [tarifs, setTarifs] = useState([]);
   const [tarifsError, setTarifsError] = useState(false);
-  const [source, setSource] = useState("");
+  // source Félix : lu une fois (lazy init, pas de setState au mount).
+  const [source] = useState(() => readFelixPrefill().source);
 
-  // Prefill Félix (jalon 4a-3) : le SMS de l'agent vocal envoie
-  // ?tel=+1418…&source=felix — tel pré-remplit les champs téléphone des deux
-  // flots (10 chiffres locaux, format attendu par validatePhone), source est
-  // embarqué dans le payload de soumission (clé de réconciliation de la
-  // métrique items-filet vs soumissions).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const src = (params.get("source") || "").trim().slice(0, 32);
-    if (src) setSource(src);
-    const tel = (params.get("tel") || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
-    if (tel.length === 10) {
-      setAnswers(prev => ({
-        ...prev,
-        phone: prev.phone || tel,
-        ft_client_phone: prev.ft_client_phone || tel,
-      }));
-    }
-  }, []);
-
-  // Fetch tarifs au montage — best effort, ne jamais bloquer le formulaire
+  // Fetch tarifs au montage — best effort, ne jamais bloquer le formulaire.
+  // Durci : retry (cold start / échec transitoire) et ne verrouille
+  // tarifsError qu'APRÈS épuisement des tentatives, jamais sur un seul échec.
   useEffect(() => {
     let cancelled = false;
-    fetch("https://afi-ops-backend.onrender.com/api/tarifs/public")
-      .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-      .then(data => {
+    async function loadTarifs(attempt) {
+      try {
+        const r = await fetch("https://afi-ops-backend.onrender.com/api/tarifs/public");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
         if (cancelled) return;
         const list = Array.isArray(data?.tarifs) ? data.tarifs : [];
-        setTarifs(list);
-        if (list.length === 0) setTarifsError(true);
-      })
-      .catch(() => { if (!cancelled) setTarifsError(true); });
+        if (list.length > 0) { setTarifs(list); setTarifsError(false); return; }
+        throw new Error("liste vide");
+      } catch (_e) {
+        if (cancelled) return;
+        if (attempt < 3) {
+          setTimeout(() => { if (!cancelled) loadTarifs(attempt + 1); }, 800 * attempt);
+        } else {
+          setTarifsError(true);
+        }
+      }
+    }
+    loadTarifs(1);
     return () => { cancelled = true; };
   }, []);
 
