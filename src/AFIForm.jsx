@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { readPrefill } from "./prefill.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 async function compressImage(file, maxWidth = 1500, quality = 0.82) {
@@ -748,7 +749,8 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
       )}
 
       {q.type === "textarea" && (
-        <textarea value={v || ""} placeholder={ph} rows={3}
+        <textarea value={v || ""} placeholder={ph}
+          rows={Math.min(14, Math.max(3, String(v || "").split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 55)), 0)))}
           onChange={e => onChange(q.slug, e.target.value || null)}
           style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${BORDER}`,
             background: BG, fontFamily: "inherit", fontSize: 15, outline: "none",
@@ -816,34 +818,29 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   );
 }
 
-// ─── PREFILL FÉLIX (jalon 4a-3, corrigé 4a) ────────────────────────────────────
+// ─── PREFILL (Félix + page d'assistance) ──────────────────────────────────────
 // Lu UNE fois, dans les initialiseurs useState (pas un useEffect post-mount) :
 // l'état part déjà seedé, sans re-render parasite au montage qui pourrait
-// perturber le chargement des tarifs. Le SMS de l'agent vocal envoie
-// ?tel=+1418…&source=felix.
-function readFelixPrefill() {
-  let params;
-  try { params = new URLSearchParams(window.location.search); }
-  catch (_e) { return { answers: {}, source: "" }; }
-  const source = (params.get("source") || "").trim().slice(0, 32);
-  const tel = (params.get("tel") || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
-  const answers = {};
-  if (tel.length === 10) { answers.phone = tel; answers.ft_client_phone = tel; }
-  return { answers, source };
+// perturber le chargement des tarifs. Convention des paramètres : src/prefill.js.
+function readUrlPrefill() {
+  try { return readPrefill(new URLSearchParams(window.location.search)); }
+  catch (_e) { return { answers: {}, source: "", prefilled: [] }; }
 }
 
 // ─── MAIN FORM ────────────────────────────────────────────────────────────────
 
 export default function AFIForm() {
-  const [answers, setAnswers] = useState(() => readFelixPrefill().answers);
+  const [prefill] = useState(readUrlPrefill);
+  const [answers, setAnswers] = useState(() => ({ ...prefill.answers }));
+  const [prefillNote, setPrefillNote] = useState(() => prefill.prefilled.some(k => k !== "phone"));
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [tarifs, setTarifs] = useState([]);
   const [tarifsError, setTarifsError] = useState(false);
-  // source Félix : lu une fois (lazy init, pas de setState au mount).
-  const [source] = useState(() => readFelixPrefill().source);
+  // source (Félix, page d'assistance, bot) : lue une fois, liste fermée.
+  const source = prefill.source;
 
   // Fetch tarifs au montage — best effort, ne jamais bloquer le formulaire.
   // Durci : retry (cold start / échec transitoire) et ne verrouille
@@ -891,12 +888,14 @@ export default function AFIForm() {
       const next = { ...prev, [slug]: value };
       const clearKeys = (keys) => keys.forEach(k => delete next[k]);
       if (slug === "request_type") clearKeys(["service_type","equipment","missing_equipment","pool_type",
-        "model_serial","purchase_date","installed_by","maintained_by","description","photo_required",
+        "model_serial","purchase_date","installed_by","maintained_by","photo_required",
         "photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
         "part_installed","rma_resolution","return_method"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
-        "purchase_date","installed_by","maintained_by","description","photo_required","photo_optional","urgency"]);
+        "purchase_date","installed_by","maintained_by","photo_required","photo_optional","urgency"]);
+      // description volontairement conservée (texte du client ou prérempli) :
+      // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
 
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
@@ -955,7 +954,10 @@ export default function AFIForm() {
       const payloadData = {};
       const rawFiles = [];
 
+      const visibleSlugs = new Set(visible.map(q => q.slug));
       Object.entries(answers).forEach(([key, val]) => {
+        // Description conservée entre types : n'envoyer que ce que le client voit.
+        if (key === "description" && !visibleSlugs.has("description")) return;
         if (val instanceof File) {
           rawFiles.push(val);
         } else {
@@ -969,7 +971,8 @@ export default function AFIForm() {
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
-      // Réconciliation Félix (4a-3) : présent seulement si arrivé par ?source=
+      // Provenance (felix, arbre-chauffage, decodeur, symptome, bot, faq) :
+      // présente seulement si arrivée par ?source= (liste fermée, cf. prefill.js).
       if (source) payloadData.source = source;
 
       // Snapshot textuel de ce que PricingInfo a affiché — utilisé côté
@@ -1022,7 +1025,7 @@ export default function AFIForm() {
         🎫 {ticketId}
       </div>
       <div style={{ marginTop: 24 }}>
-        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); }} style={{
+        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setPrefillNote(false); }} style={{
           padding: "9px 20px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG,
           fontFamily: "inherit", fontSize: 13, cursor: "pointer", color: MUTED,
         }}>
@@ -1046,6 +1049,14 @@ export default function AFIForm() {
       <div style={{ fontSize: 11, color: MUTED, textAlign: "right", marginBottom: 16 }}>
         {answeredCount}/{visible.length} {lang === "fr" ? "répondu" : "answered"} · {progress}%
       </div>
+      {prefillNote && (
+        <div style={{ background: AL, border: `1px solid ${A}`, borderRadius: 10, padding: "12px 16px",
+          marginBottom: 16, fontSize: 13, color: TEXT, lineHeight: 1.5 }}>
+          {lang === "fr"
+            ? "Certaines réponses ont été préremplies à partir de votre diagnostic. Vérifiez-les et modifiez-les au besoin avant d'envoyer."
+            : "Some answers were pre-filled from your diagnosis. Please check and edit them before submitting."}
+        </div>
+      )}
       {answers.client_type === "employee" && (
         <div style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 10, padding: "12px 16px",
           marginBottom: 16, fontSize: 13, color: "#664d03", lineHeight: 1.5 }}>
