@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { readPrefill } from "./prefill.js";
+import { grille, dollars, fmt, LIVRAISON } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 async function compressImage(file, maxWidth = 1500, quality = 0.82) {
@@ -221,9 +222,9 @@ const QUESTIONS = [
     options: [
       { value: "pickup",    label: { fr: "🏪 Cueillette en magasin", en: "🏪 In-store pickup" } },
       { value: "purolator", label: { fr: "📦 Purolator",             en: "📦 Purolator" } },
-      { value: "afi_150",   label: { fr: "🚚 Livraison AFI — 150$",  en: "🚚 AFI Delivery — $150" } },
-      { value: "afi_250",   label: { fr: "🚚 Livraison AFI — 250$",  en: "🚚 AFI Delivery — $250" } },
-      { value: "express",   label: { fr: "⚡ Express 2$/km",          en: "⚡ Express $2/km" } },
+      { value: "afi_150",   label: { fr: `🚚 Livraison AFI — ${LIVRAISON.afi150}$`,  en: `🚚 AFI Delivery — $${LIVRAISON.afi150}` } },
+      { value: "afi_250",   label: { fr: `🚚 Livraison AFI — ${LIVRAISON.afi250}$`,  en: `🚚 AFI Delivery — $${LIVRAISON.afi250}` } },
+      { value: "express",   label: { fr: `⚡ Express ${LIVRAISON.expressParKm}$/km`, en: `⚡ Express $${LIVRAISON.expressParKm}/km` } },
     ] },
   { slug: "quote_intent", type: "radio", required: true,
     label: { fr: "📜 Que souhaitez-vous faire?", en: "📜 What would you like?" },
@@ -431,51 +432,76 @@ function FieldError({ message }) {
 }
 
 // ─── PRICING INFO (divulgation tarifaire avant pricing_consent) ─────────────
+// Montants : board « Tarifs AFI » (src/tarifs.js). Le même texte sert à
+// l'affichage ET au snapshot envoyé au backend (pricing_info_displayed),
+// pour que le consentement loggé dans Monday corresponde à ce que le client a vu.
 
-/**
- * Construit une string concise reflétant ce que PricingInfo affiche au
- * client. Utilisée pour serializer le snapshot dans le payload submit
- * (champ pricing_info_displayed) → loggé côté backend dans Monday.
- *
- * Réutilise `tarifs` déjà en mémoire (pas de fetch supplémentaire).
- * Retourne null pour incomplete (pas de frais) ou si serviceType absent.
- */
-function buildPricingInfoDisplayed(serviceType, tarifs) {
+const DIAG_FR = "L'analyse à distance de vos photos et vidéos est sans frais. Un diagnostic sur place est facturable, même si aucune réparation n'est effectuée.";
+const DIAG_EN = "Remote review of your photos and videos is free. An on-site diagnostic is billable, even if no repair is performed.";
+
+// { forfait?, lignes[], notes[], urgence? } ; null si rien à afficher.
+function contenuTarifs(serviceType, tarifs, urgency, lang) {
   if (!serviceType || serviceType === "incomplete") return null;
+  const fr = lang !== "en";
+  const g = grille(tarifs, urgency);
+  const d = dollars;
+  const dep = (x) => fr
+    ? `Déplacement : ${d(x.dep75)} (≤75 km) ou ${d(x.dep300)} (>75 km)`
+    : `Travel: ${d(x.dep75)} (≤75 km) or ${d(x.dep300)} (>75 km)`;
+  const mo = (x) => fr ? `Main-d'œuvre : ${x.mo != null ? fmt(x.mo) + " $/h" : "—"}` : `Labor: ${x.mo != null ? "$" + fmt(x.mo) + "/h" : "—"}`;
+  const reg = grille(tarifs, null);
+  const urgence = g.urgent ? {
+    lignes: [mo(g), dep(g)],
+    note: fr
+      ? `Tarif d'urgence au lieu du tarif régulier (${reg.mo != null ? fmt(reg.mo) + " $/h" : "—"} ; déplacement ${d(reg.dep75)} ou ${d(reg.dep300)}).`
+      : `Emergency rate instead of the regular rate (${reg.mo != null ? "$" + fmt(reg.mo) + "/h" : "—"}; travel ${d(reg.dep75)} or ${d(reg.dep300)}).`,
+  } : null;
+  const taxes = fr ? "Taxes en sus." : "Taxes extra.";
 
-  const get = (code) => {
-    const t = tarifs.find(x => x.code === code);
-    return t && t.montant != null ? Number(t.montant) : null;
-  };
-  const dollars = (v) => v != null ? `${v} $` : "—";
-
-  if (serviceType === "opening")  return `Forfait ouverture : ${dollars(get("SVC_OUVERTURE"))} + taxes`;
-  if (serviceType === "closing")  return `Forfait fermeture : ${dollars(get("SVC_FERMETURE"))} + taxes`;
-  if (serviceType === "plumbing") return `Forfait raccordement : ${dollars(get("SVC_RACCORDEMENT"))} + taxes`;
+  if (serviceType === "opening" || serviceType === "closing") {
+    const m = d(serviceType === "opening" ? g.ouverture : g.fermeture);
+    return { forfait: fr ? `Forfait ${m} — payable à la réservation. ${taxes}` : `Package ${m} — payable upon booking. ${taxes}`, lignes: [], notes: [] };
+  }
+  if (serviceType === "plumbing") {
+    return { forfait: fr ? `Forfait raccordement ${d(g.raccordement)} (1re visite et visites subséquentes). ${taxes}`
+      : `Plumbing/commissioning package ${d(g.raccordement)} (first and subsequent visits). ${taxes}`, lignes: [], notes: [], urgence };
+  }
   if (serviceType === "pressure") {
-    return `Forfait test de pression : ${dollars(get("SVC_TEST_PRESSION"))} + déplacement ${dollars(get("DEP_75"))} (≤75 km) ou ${dollars(get("DEP_300"))} (>75 km) + taxes`;
+    return { forfait: fr ? `Forfait test de pression ${d(g.testPression)}. ${taxes}` : `Pressure test package ${d(g.testPression)}. ${taxes}`,
+      lignes: g.urgent ? [] : [dep(g)], notes: [], urgence };
   }
   if (serviceType === "break" || serviceType === "gelcoat") {
-    const mo = get("MO_REG");
-    const moStr = mo != null ? `${mo} $/h` : "—";
-    const suffix = serviceType === "gelcoat" ? " (gelcoat sur devis)" : "";
-    return `Main-d'œuvre : ${moStr} — Déplacement : ${dollars(get("DEP_75"))} (≤75 km) ou ${dollars(get("DEP_300"))} (>75 km)${suffix}`;
+    const notes = [fr ? "Une estimation est communiquée avant tout travail majeur." : "An estimate is provided before any major work."];
+    if (serviceType === "gelcoat") notes.push(fr ? "Le gelcoat fait l'objet d'un devis sur mesure." : "Gelcoat work is quoted individually.");
+    return { lignes: g.urgent ? [] : [mo(g), dep(g)], diag: fr ? DIAG_FR : DIAG_EN, notes: [taxes, ...notes], urgence };
   }
   if (serviceType === "warranty") {
-    return "Garantie : pièce remplacée sans frais si couverte — déplacement et main-d'œuvre facturables sauf avis contraire";
+    return { forfait: fr
+      ? "Demande de garantie : si la pièce est couverte après validation, elle est remplacée sans frais. Les frais de déplacement et de main-d'œuvre demeurent facturables, sauf avis contraire."
+      : "Warranty request: if the part is covered after validation, it is replaced free of charge. Travel and labor fees remain billable, unless otherwise stated.",
+      lignes: [], notes: [], urgence };
   }
   return null;
 }
 
-function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
-  if (!serviceType || serviceType === "incomplete") return null;
+/**
+ * Snapshot texte de ce que PricingInfo affiche (champ pricing_info_displayed,
+ * loggé côté backend dans Monday). Même source que l'affichage.
+ */
+function buildPricingInfoDisplayed(serviceType, tarifs, urgency) {
+  const c = contenuTarifs(serviceType, tarifs, urgency, "fr");
+  if (!c) return null;
+  const parts = [];
+  if (c.forfait) parts.push(c.forfait);
+  if (c.urgence) parts.push("TARIF D'URGENCE — " + c.urgence.lignes.join(" — "));
+  parts.push(...c.lignes);
+  if (c.diag) parts.push(c.diag);
+  return parts.join(" | ");
+}
 
-  const fmt = (code) => {
-    const t = tarifs.find(x => x.code === code);
-    if (!t || t.montant == null) return null;
-    return Number(t.montant).toLocaleString("fr-CA", { maximumFractionDigits: 0 });
-  };
-  const dollars = (v) => v != null ? `${v} $` : "—";
+function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang }) {
+  if (!serviceType || serviceType === "incomplete") return null;
+  const fr = lang !== "en";
 
   const wrap = {
     background: AL,
@@ -489,7 +515,14 @@ function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
   };
   const title = (
     <div style={{ fontSize: 13, fontWeight: 700, color: A, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-      💡 {lang === "fr" ? "Tarifs applicables AFI" : "Applicable AFI rates"}
+      💡 {fr ? "Tarifs applicables AFI" : "Applicable AFI rates"}
+    </div>
+  );
+  const boiteUrgence = (children) => (
+    <div data-tarif-urgence style={{ background: "#fff4e5", border: "2px solid #d9480f", borderRadius: 10,
+      padding: "12px 14px", margin: "0 0 12px 0", color: "#7a2a05" }}>
+      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>⚠️ {fr ? "Tarif d'urgence" : "Emergency rate"}</div>
+      {children}
     </div>
   );
 
@@ -497,8 +530,11 @@ function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
     return (
       <div id="q-pricing_info" style={wrap}>
         {title}
+        {urgency === "urgent" && boiteUrgence(<div>{fr
+          ? "Vous avez choisi « Urgent » : des frais majorés s'appliquent (main-d'œuvre et déplacement). Notre équipe vous les confirme avant l'intervention."
+          : "You selected “Urgent”: higher fees apply (labor and travel). Our team will confirm them before the visit."}</div>)}
         <div>
-          {lang === "fr"
+          {fr
             ? "Les tarifs en vigueur vous seront communiqués par notre équipe. Main-d'œuvre, déplacement et forfaits selon la grille tarifaire AFI."
             : "Current rates will be communicated by our team. Labor, travel and packages according to AFI's rate schedule."}
         </div>
@@ -506,103 +542,47 @@ function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
     );
   }
 
-  let body = null;
-
-  if (serviceType === "opening" || serviceType === "closing") {
-    const code = serviceType === "opening" ? "SVC_OUVERTURE" : "SVC_FERMETURE";
-    const url = serviceType === "opening"
-      ? "https://discountpoolsupplies.ca/products/service-douverture"
-      : "https://discountpoolsupplies.ca/products/service-de-fermeture";
-    const m = dollars(fmt(code));
-    body = (
-      <>
-        <div>
-          💰 {lang === "fr"
-            ? `Forfait ${m} — payable à la réservation. Taxes en sus.`
-            : `Package ${m} — payable upon booking. Taxes extra.`}
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <a href={url} target="_blank" rel="noopener" style={{
-            display: "inline-block",
-            padding: "9px 14px",
-            borderRadius: 8,
-            background: A,
-            color: "#fff",
-            textDecoration: "none",
-            fontSize: 13,
-            fontWeight: 600,
-          }}>
-            🔗 {lang === "fr" ? "Payer en ligne" : "Pay online"}
-          </a>
-        </div>
-      </>
-    );
-  } else if (serviceType === "plumbing") {
-    const m = dollars(fmt("SVC_RACCORDEMENT"));
-    body = (
-      <div>
-        💰 {lang === "fr"
-          ? `Forfait raccordement ${m} (1re visite et visites subséquentes). Taxes en sus.`
-          : `Plumbing/commissioning package ${m} (first and subsequent visits). Taxes extra.`}
-      </div>
-    );
-  } else if (serviceType === "pressure") {
-    const svc = dollars(fmt("SVC_TEST_PRESSION"));
-    const d75 = dollars(fmt("DEP_75"));
-    const d300 = dollars(fmt("DEP_300"));
-    body = (
-      <div>
-        💰 {lang === "fr"
-          ? `Forfait test de pression ${svc} + frais de déplacement ${d75} (≤75 km) ou ${d300} (>75 km). Taxes en sus.`
-          : `Pressure test package ${svc} + travel fee ${d75} (≤75 km) or ${d300} (>75 km). Taxes extra.`}
-      </div>
-    );
-  } else if (serviceType === "break" || serviceType === "gelcoat") {
-    const mo = fmt("MO_REG");
-    const mos = mo != null ? `${mo} $/h` : "—";
-    const d75 = dollars(fmt("DEP_75"));
-    const d300 = dollars(fmt("DEP_300"));
-    body = (
-      <>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>
-          💰 {lang === "fr" ? "Tarifs applicables :" : "Applicable rates:"}
-        </div>
-        <ul style={{ margin: "0 0 10px 0", paddingLeft: 20 }}>
-          <li>{lang === "fr" ? "Main-d'œuvre" : "Labor"} : {mos}</li>
-          <li>{lang === "fr" ? "Déplacement" : "Travel"} : {d75} (≤75 km) {lang === "fr" ? "ou" : "or"} {d300} (&gt;75 km)</li>
-          <li>{lang === "fr"
-            ? "Le diagnostic est facturable même si aucune réparation n'est effectuée."
-            : "Diagnostic is billable even if no repair is performed."}</li>
-        </ul>
-        <div style={{ fontSize: 13, color: MUTED }}>
-          {lang === "fr"
-            ? "Taxes en sus. Une estimation est communiquée avant tout travail majeur."
-            : "Taxes extra. An estimate is provided before any major work."}
-          {serviceType === "gelcoat" && (
-            <> {lang === "fr"
-              ? "Le gelcoat fait l'objet d'un devis sur mesure."
-              : "Gelcoat work is quoted individually."}
-            </>
-          )}
-        </div>
-      </>
-    );
-  } else if (serviceType === "warranty") {
-    body = (
-      <div>
-        💰 {lang === "fr"
-          ? "Demande de garantie : si la pièce est couverte après validation, elle est remplacée sans frais. Les frais de déplacement et de main-d'œuvre demeurent facturables, sauf avis contraire."
-          : "Warranty request: if the part is covered after validation, it is replaced free of charge. Travel and labor fees remain billable, unless otherwise stated."}
-      </div>
-    );
-  } else {
-    return null;
-  }
+  const c = contenuTarifs(serviceType, tarifs, urgency, lang);
+  if (!c) return null;
+  const payer = serviceType === "opening" || serviceType === "closing";
+  const url = serviceType === "opening"
+    ? "https://discountpoolsupplies.ca/products/service-douverture"
+    : "https://discountpoolsupplies.ca/products/service-de-fermeture";
 
   return (
     <div id="q-pricing_info" style={wrap}>
       {title}
-      {body}
+      {c.urgence && boiteUrgence(
+        <>
+          <ul style={{ margin: "0 0 6px 0", paddingLeft: 20, fontWeight: 600 }}>
+            {c.urgence.lignes.map((l) => <li key={l}>{l}</li>)}
+          </ul>
+          <div style={{ fontSize: 13 }}>{c.urgence.note}</div>
+        </>
+      )}
+      {c.forfait && <div>💰 {c.forfait}</div>}
+      {payer && (
+        <div style={{ marginTop: 12 }}>
+          <a href={url} target="_blank" rel="noopener" style={{
+            display: "inline-block", padding: "9px 14px", borderRadius: 8, background: A,
+            color: "#fff", textDecoration: "none", fontSize: 13, fontWeight: 600,
+          }}>
+            🔗 {fr ? "Payer en ligne" : "Pay online"}
+          </a>
+        </div>
+      )}
+      {(c.lignes.length > 0 || c.diag) && (
+        <>
+          {!c.forfait && c.lignes.length > 0 && (
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>💰 {fr ? "Tarifs applicables :" : "Applicable rates:"}</div>
+          )}
+          <ul style={{ margin: "0 0 10px 0", paddingLeft: 20 }}>
+            {c.lignes.map((l) => <li key={l}>{l}</li>)}
+            {c.diag && <li>{c.diag}</li>}
+          </ul>
+        </>
+      )}
+      {c.notes.length > 0 && <div style={{ fontSize: 13, color: MUTED }}>{c.notes.join(" ")}</div>}
     </div>
   );
 }
@@ -612,7 +592,7 @@ function PricingInfo({ serviceType, tarifs, tarifsError, lang }) {
 function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, tarifs, tarifsError }) {
   // pricing_info : bloc d'affichage pur, pas une question
   if (q.type === "pricing_info") {
-    return <PricingInfo serviceType={answers.service_type} tarifs={tarifs} tarifsError={tarifsError} lang={lang} />;
+    return <PricingInfo serviceType={answers.service_type} urgency={answers.urgency} tarifs={tarifs} tarifsError={tarifsError} lang={lang} />;
   }
 
   const v = answers[q.slug];
@@ -979,7 +959,7 @@ export default function AFIForm() {
       // backend pour le log Monday du consentement tarifaire. On utilise
       // `tarifs` déjà en mémoire (pas de fetch supplémentaire).
       if (answers.pricing_consent === true) {
-        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs);
+        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs, answers.urgency);
         if (displayed) payloadData.pricing_info_displayed = displayed;
       }
 
