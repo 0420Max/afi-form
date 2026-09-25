@@ -876,6 +876,15 @@ export default function AFIForm() {
         "purchase_date","installed_by","maintained_by","photo_required","photo_optional","urgency"]);
       // description volontairement conservée (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
+      // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas ») : choisir
+      // (ou rechoisir) le type de demande ou de service ne les efface plus ;
+      // le client peut toujours les changer ou les décocher.
+      const restaurer = slug === "service_type" ? ["equipment", "pool_type"]
+        : slug === "request_type" && value === "service" ? ["service_type", "equipment", "pool_type"] : [];
+      for (const k of restaurer) {
+        const v = prefill.answers[k];
+        if (next[k] === undefined && v !== undefined) next[k] = Array.isArray(v) ? [...v] : v;
+      }
 
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
