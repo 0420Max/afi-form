@@ -3,9 +3,11 @@ import { readPrefill } from "./prefill.js";
 import { grille, dollars, fmt, LIVRAISON } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
-async function compressImage(file, maxWidth = 1500, quality = 0.82) {
-  // Si c'est pas une image ou déjà petit (<2MB), pas besoin de compresser
-  if (!file.type.startsWith("image/") || file.size < 2 * 1024 * 1024) return file;
+// Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
+// le navigateur ne sait pas décoder (ex. HEIC hors Safari) part tel quel.
+export const MAX_PHOTOS = 10;
+async function compressImage(file, maxWidth = 2000, quality = 0.8) {
+  if (!file.type.startsWith("image/") || file.size < 400 * 1024) return file;
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -186,11 +188,11 @@ const QUESTIONS = [
       if (a.service_type === "incomplete") return a.missing_equipment?.length > 0;
       return a.pool_type != null && ["break","gelcoat","pressure","plumbing"].includes(a.service_type);
     } },
-  { slug: "photo_required", type: "file", required: true,
+  { slug: "photo_required", type: "file", multiple: true, required: true,
     label: { fr: "📸 Photo (obligatoire pour garantie)", en: "📸 Photo (required for warranty)" },
     show_if: (a) => a.service_type === "warranty" && a.description != null },
-  { slug: "photo_optional", type: "file", required: false,
-    label: { fr: "📸 Photo (recommandée)", en: "📸 Upload photo (recommended)" },
+  { slug: "photo_optional", type: "file", multiple: true, required: false,
+    label: { fr: "📸 Photos (recommandées)", en: "📸 Photos (recommended)" },
     show_if: (a) => ["break","gelcoat","pressure"].includes(a.service_type) && a.description != null },
   { slug: "urgency", type: "radio", required: false,
     label: { fr: "🚦 Niveau d'urgence", en: "🚦 Urgency Level" },
@@ -436,8 +438,8 @@ function FieldError({ message }) {
 // l'affichage ET au snapshot envoyé au backend (pricing_info_displayed),
 // pour que le consentement loggé dans Monday corresponde à ce que le client a vu.
 
-const DIAG_FR = "L'analyse à distance de vos photos et vidéos est sans frais. Un diagnostic sur place est facturable, même si aucune réparation n'est effectuée.";
-const DIAG_EN = "Remote review of your photos and videos is free. An on-site diagnostic is billable, even if no repair is performed.";
+const DIAG_FR = "L'analyse à distance de vos photos (et vidéos par réponse au courriel de confirmation) est sans frais. Un diagnostic sur place est facturable, même si aucune réparation n'est effectuée.";
+const DIAG_EN = "Remote review of your photos (and videos by replying to the confirmation email) is free. An on-site diagnostic is billable, even if no repair is performed.";
 
 // { forfait?, lignes[], notes[], urgence? } ; null si rien à afficher.
 function contenuTarifs(serviceType, tarifs, urgency, lang) {
@@ -583,6 +585,96 @@ function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang }) {
         </>
       )}
       {c.notes.length > 0 && <div style={{ fontSize: 13, color: MUTED }}>{c.notes.join(" ")}</div>}
+    </div>
+  );
+}
+
+// ─── PHOTOS MULTIPLES ─────────────────────────────────────────────────────────
+// Jusqu'à MAX_PHOTOS photos (images ou PDF), miniatures avec « Retirer ».
+// Pas de vidéo dans le formulaire : elles arrivent par réponse au courriel.
+const RAW_EXTS = ['.dng', '.arw', '.cr2', '.cr3', '.nef', '.orf', '.raf', '.rw2', '.pef', '.srw'];
+
+function Miniature({ file, lang, onRetirer }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  return (
+    <div style={{ position: "relative", width: 88, height: 88, borderRadius: 8, overflow: "hidden",
+      border: `1px solid ${BORDER}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {url
+        ? <img src={url} alt={file.name} onError={() => setUrl(null)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        : <span style={{ fontSize: 10, color: MUTED, padding: 6, textAlign: "center", wordBreak: "break-all" }}>📄 {file.name}</span>}
+      <button type="button" onClick={onRetirer}
+        aria-label={(lang === "fr" ? "Retirer " : "Remove ") + file.name}
+        style={{ position: "absolute", top: 4, right: 4, width: 26, height: 26, borderRadius: 13, border: "none",
+          background: "rgba(0,0,0,0.65)", color: "#fff", fontSize: 14, lineHeight: "26px", cursor: "pointer", padding: 0 }}>✕</button>
+    </div>
+  );
+}
+
+function PhotosMultiples({ q, v, lang, onChange }) {
+  const fRef = useRef();
+  const [msg, setMsg] = useState("");
+  const fichiers = Array.isArray(v) ? v : [];
+  const plein = fichiers.length >= MAX_PHOTOS;
+  const ajouter = (liste) => {
+    const ok = [];
+    let refusRaw = false;
+    for (const f of liste) {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+      if (RAW_EXTS.includes(ext) || f.type === '') { refusRaw = true; continue; }
+      ok.push(f);
+    }
+    const place = MAX_PHOTOS - fichiers.length;
+    const gardes = ok.slice(0, Math.max(0, place));
+    const messages = [];
+    if (refusRaw) messages.push(lang === "fr"
+      ? "Format RAW non supporté : reprenez la photo en JPEG ou HEIC (désactivez ProRAW)."
+      : "RAW format not supported: retake the photo in JPEG or HEIC (turn off ProRAW).");
+    if (ok.length > gardes.length) messages.push(lang === "fr"
+      ? `Maximum ${MAX_PHOTOS} photos : ${ok.length - gardes.length} n'ont pas été ajoutées. Retirez-en pour en ajouter d'autres.`
+      : `Maximum ${MAX_PHOTOS} photos: ${ok.length - gardes.length} were not added. Remove some to add others.`);
+    setMsg(messages.join(" "));
+    if (gardes.length) onChange(q.slug, [...fichiers, ...gardes]);
+  };
+  const retirer = (i) => {
+    const reste = fichiers.filter((_, j) => j !== i);
+    setMsg("");
+    onChange(q.slug, reste.length ? reste : null);
+  };
+  return (
+    <div>
+      {fichiers.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+          {fichiers.map((f, i) => <Miniature key={f.name + f.size + i} file={f} lang={lang} onRetirer={() => retirer(i)} />)}
+        </div>
+      )}
+      <button type="button" disabled={plein} onClick={() => fRef.current?.click()} style={{
+        width: "100%", border: `2px dashed ${fichiers.length ? A : BORDER}`, borderRadius: 8, padding: "16px",
+        textAlign: "center", cursor: plein ? "not-allowed" : "pointer", background: fichiers.length ? AL : BG,
+        fontFamily: "inherit", color: plein ? MUTED : TEXT, opacity: plein ? 0.6 : 1,
+      }}>
+        <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>
+          {plein
+            ? (lang === "fr" ? `Limite de ${MAX_PHOTOS} photos atteinte` : `${MAX_PHOTOS}-photo limit reached`)
+            : fichiers.length
+              ? (lang === "fr" ? `${fichiers.length}/${MAX_PHOTOS} photos — ajouter d'autres photos` : `${fichiers.length}/${MAX_PHOTOS} photos — add more photos`)
+              : (lang === "fr" ? `Ajouter des photos (jusqu'à ${MAX_PHOTOS})` : `Add photos (up to ${MAX_PHOTOS})`)}
+        </div>
+      </button>
+      <input ref={fRef} type="file" multiple accept="image/jpeg,image/png,image/heic,image/heif,image/webp,.pdf" style={{ display: "none" }}
+        onChange={e => { ajouter([...(e.target.files || [])]); e.target.value = ''; }} />
+      {msg && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: ERROR_COLOR }}>{msg}</div>}
+      <div style={{ marginTop: 8, fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
+        {lang === "fr"
+          ? "Vous pourrez aussi ajouter des photos ou des vidéos plus tard en répondant au courriel de confirmation."
+          : "You can also add photos or videos later by replying to the confirmation email."}
+      </div>
     </div>
   );
 }
@@ -751,7 +843,11 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
         </div>
       )}
 
-      {q.type === "file" && (
+      {q.type === "file" && q.multiple && (
+        <PhotosMultiples q={q} v={v} lang={lang} onChange={onChange} />
+      )}
+
+      {q.type === "file" && !q.multiple && (
         <div onClick={() => fRef.current?.click()} style={{
           border: `2px dashed ${v ? A : BORDER}`, borderRadius: 8, padding: "18px 16px",
           textAlign: "center", cursor: "pointer", background: v ? AL : BG, transition: "all 0.15s",
@@ -947,12 +1043,16 @@ export default function AFIForm() {
       Object.entries(answers).forEach(([key, val]) => {
         // Description conservée entre types : n'envoyer que ce que le client voit.
         if (key === "description" && !visibleSlugs.has("description")) return;
-        if (val instanceof File) {
+        if (Array.isArray(val) && val.length && val.every(x => x instanceof File)) {
+          rawFiles.push(...val.slice(0, MAX_PHOTOS));
+        } else if (val instanceof File) {
           rawFiles.push(val);
         } else {
           payloadData[key] = val;
         }
       });
+
+      rawFiles.splice(MAX_PHOTOS); // limite du backend : 10 fichiers « photos »
 
       // Compression parallèle de toutes les images
       const filesToUpload = await Promise.all(rawFiles.map(f => compressImage(f)));
