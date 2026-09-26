@@ -937,7 +937,7 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
 // perturber le chargement des tarifs. Convention des paramètres : src/prefill.js.
 function readUrlPrefill() {
   try { return readPrefill(new URLSearchParams(window.location.search)); }
-  catch (_e) { return { answers: {}, source: "", prefilled: [] }; }
+  catch (_e) { return { answers: {}, source: "", conv: "", prefilled: [] }; }
 }
 
 // ─── MAIN FORM ────────────────────────────────────────────────────────────────
@@ -1107,6 +1107,8 @@ export default function AFIForm() {
       // Provenance (felix, arbre-chauffage, decodeur, symptome, bot, faq) :
       // présente seulement si arrivée par ?source= (liste fermée, cf. prefill.js).
       if (source) payloadData.source = source;
+      // Conversation d'AFI Assist d'où vient le lien (?conv=) : le dossier y sera relié.
+      if (prefill.conv) payloadData.conv = prefill.conv;
 
       // Snapshot textuel de ce que PricingInfo a affiché — utilisé côté
       // backend pour le log Monday du consentement tarifaire. On utilise
