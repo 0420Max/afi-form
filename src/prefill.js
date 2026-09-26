@@ -4,7 +4,7 @@
 // Convention UNIQUE partagée avec afi-assistance (6 paramètres + tel) :
 //   type        service                                   → request_type
 //   symptome    liste fermée (SYMPTOMES ci-dessous)        → texte de la description (+ spa si connu)
-//   code        code d'erreur affiché, 12 car. max        → ligne « Code affiché : … » dans la description
+//   code        code d'erreur affiché, 12 car. max        → champ « Code affiché » (error_code)
 //   description résumé en texte brut, 1800 car. max        → champ « Décrivez le problème »
 //   urgence     important | standard | incertain          → urgency (« urgent » n'est JAMAIS coché d'office)
 //   source      arbre-chauffage | decodeur | symptome | bot | faq | felix
@@ -88,9 +88,9 @@ export function readPrefill(params) {
     if (symptome) lignes.push(`Symptôme : ${symptome.fr}.`);
     description = lignes.join("\n");
   }
-  if (code && !description.toUpperCase().includes(code)) {
-    description = (description ? description + "\n" : "") + `Code affiché : ${code}.`;
-  }
+  // Le code a son propre champ, visible et modifiable ; le serveur l'ajoute à
+  // la description de Monday (« Code affiché : … »), sans doublon.
+  if (code) answers.error_code = code;
   if (description) answers.description = description.slice(0, LIMITES.description);
 
   return { answers, source, prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone") };
