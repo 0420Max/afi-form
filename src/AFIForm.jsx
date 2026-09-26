@@ -165,21 +165,39 @@ const QUESTIONS = [
       { value: "pool", label: { fr: "🏊 Piscine", en: "🏊 Pool" } },
       { value: "spa",  label: { fr: "♨️ Spa",     en: "♨️ Spa" } },
     ] },
-  { slug: "model_serial", type: "text", required: false,
+  // Garantie : modèle ET n° de série obligatoires (deux champs) ; ailleurs, un seul champ facultatif.
+  { slug: "model_serial", type: "text", required: (a) => a.service_type === "warranty",
     label: { fr: "🏷️ Modèle ou numéro de série", en: "🏷️ Model or serial number" },
+    label_garantie: { fr: "🏷️ Modèle", en: "🏷️ Model" },
     placeholder: { fr: "Ex: Riviera 4.5 ou SN-2024-XXXX", en: "Ex: Riviera 4.5 or SN-2024-XXXX" },
+    placeholder_garantie: { fr: "Ex: Riviera 4.5", en: "Ex: Riviera 4.5" },
     show_if: (a) => a.pool_type != null },
+  { slug: "serial_number", type: "text", required: true,
+    label: { fr: "🔢 Numéro de série", en: "🔢 Serial number" },
+    placeholder: { fr: "Ex: SN-2024-XXXX", en: "Ex: SN-2024-XXXX" },
+    show_if: (a) => a.service_type === "warranty" && !!a.model_serial },
   { slug: "purchase_date", type: "date", required: true,
     label: { fr: "📅 Date approximative d'achat", en: "📅 Approximate purchase date" },
-    show_if: (a) => a.service_type === "warranty" && a.model_serial != null },
+    show_if: (a) => a.service_type === "warranty" && !!a.serial_number },
+  { slug: "install_date", type: "date", required: true,
+    label: { fr: "🛠️ Date approximative d'installation", en: "🛠️ Approximate installation date" },
+    show_if: (a) => a.service_type === "warranty" && a.purchase_date != null },
   { slug: "installed_by", type: "text", required: true,
     label: { fr: "👷 Installation faite par", en: "👷 Installation done by" },
     placeholder: { fr: "Nom de l'entreprise ou technicien", en: "Company or technician name" },
-    show_if: (a) => a.service_type === "warranty" && a.purchase_date != null },
+    show_if: (a) => a.service_type === "warranty" && a.install_date != null },
   { slug: "maintained_by", type: "text", required: true,
     label: { fr: "🔧 Maintenance effectuée par", en: "🔧 Maintenance performed by" },
     placeholder: { fr: "Nom de l'entreprise ou technicien", en: "Company or technician name" },
     show_if: (a) => a.service_type === "warranty" && a.installed_by != null },
+  // « Code affiché » : prérempli par le décodeur (?code=), modifiable, facultatif.
+  { slug: "error_code", type: "text", required: false,
+    label: { fr: "🔢 Code affiché (s'il y en a un)", en: "🔢 Code displayed (if any)" },
+    placeholder: { fr: "Ex: FLO, OH, Prr", en: "Ex: FLO, OH, Prr" },
+    show_if: (a) => {
+      if (a.service_type === "warranty") return !!a.maintained_by;
+      return a.service_type === "break" && a.pool_type != null;
+    } },
   { slug: "description", type: "textarea", required: true,
     label: { fr: "📜 Décrivez le problème", en: "📜 Describe the issue" },
     placeholder: { fr: "Décrivez ce que vous observez, depuis quand, etc.", en: "Describe what you observe, since when, etc." },
@@ -188,9 +206,15 @@ const QUESTIONS = [
       if (a.service_type === "incomplete") return a.missing_equipment?.length > 0;
       return a.pool_type != null && ["break","gelcoat","pressure","plumbing"].includes(a.service_type);
     } },
+  // Envoyée à part (champ « preuve_achat ») : photo ou PDF de la facture ou du reçu.
+  { slug: "purchase_proof", type: "file", multiple: true, max: 3, preuve: true, required: true,
+    label: { fr: "🧾 Preuve d'achat (facture ou reçu)", en: "🧾 Proof of purchase (invoice or receipt)" },
+    // maintained_by : la description peut être préremplie (page d'assistance) avant
+    // d'être visible ; la preuve d'achat n'apparaît qu'une fois la chaîne garantie remplie.
+    show_if: (a) => a.service_type === "warranty" && !!a.maintained_by && !!a.description },
   { slug: "photo_required", type: "file", multiple: true, required: true,
     label: { fr: "📸 Photo (obligatoire pour garantie)", en: "📸 Photo (required for warranty)" },
-    show_if: (a) => a.service_type === "warranty" && a.description != null },
+    show_if: (a) => a.service_type === "warranty" && a.purchase_proof != null },
   { slug: "photo_optional", type: "file", multiple: true, required: false,
     label: { fr: "📸 Photos (recommandées)", en: "📸 Photos (recommended)" },
     show_if: (a) => ["break","gelcoat","pressure"].includes(a.service_type) && a.description != null },
@@ -407,6 +431,8 @@ function isAnswered(v) {
 }
 
 function getVisible(ans) { return QUESTIONS.filter(q => q.show_if(ans)); }
+// required : booléen, ou fonction des réponses (ex. modèle obligatoire en garantie).
+function estRequis(q, ans) { return typeof q.required === "function" ? !!q.required(ans) : !!q.required; }
 
 // ─── INLINE ERROR COMPONENT ──────────────────────────────────────────────────
 
@@ -620,7 +646,13 @@ function PhotosMultiples({ q, v, lang, onChange }) {
   const fRef = useRef();
   const [msg, setMsg] = useState("");
   const fichiers = Array.isArray(v) ? v : [];
-  const plein = fichiers.length >= MAX_PHOTOS;
+  // q.max : limite propre à la question (preuve d'achat : 3) ; sinon MAX_PHOTOS.
+  const max = q.max || MAX_PHOTOS;
+  const plein = fichiers.length >= max;
+  // Textes : « photos » par défaut, « fichiers » (photo ou PDF) pour la preuve d'achat.
+  const T = q.preuve
+    ? { fr: "fichiers", en: "files", ajouterFr: `Ajouter la facture ou le reçu (photo ou PDF, jusqu'à ${max})`, ajouterEn: `Add the invoice or receipt (photo or PDF, up to ${max})` }
+    : { fr: "photos", en: "photos", ajouterFr: `Ajouter des photos (jusqu'à ${max})`, ajouterEn: `Add photos (up to ${max})` };
   const ajouter = (liste) => {
     const ok = [];
     let refusRaw = false;
@@ -629,15 +661,15 @@ function PhotosMultiples({ q, v, lang, onChange }) {
       if (RAW_EXTS.includes(ext) || f.type === '') { refusRaw = true; continue; }
       ok.push(f);
     }
-    const place = MAX_PHOTOS - fichiers.length;
+    const place = max - fichiers.length;
     const gardes = ok.slice(0, Math.max(0, place));
     const messages = [];
     if (refusRaw) messages.push(lang === "fr"
       ? "Format RAW non supporté : reprenez la photo en JPEG ou HEIC (désactivez ProRAW)."
       : "RAW format not supported: retake the photo in JPEG or HEIC (turn off ProRAW).");
     if (ok.length > gardes.length) messages.push(lang === "fr"
-      ? `Maximum ${MAX_PHOTOS} photos : ${ok.length - gardes.length} n'ont pas été ajoutées. Retirez-en pour en ajouter d'autres.`
-      : `Maximum ${MAX_PHOTOS} photos: ${ok.length - gardes.length} were not added. Remove some to add others.`);
+      ? `Maximum ${max} ${T.fr} : ${ok.length - gardes.length} n'ont pas été ajoutés. Retirez-en pour en ajouter d'autres.`
+      : `Maximum ${max} ${T.en}: ${ok.length - gardes.length} were not added. Remove some to add others.`);
     setMsg(messages.join(" "));
     if (gardes.length) onChange(q.slug, [...fichiers, ...gardes]);
   };
@@ -661,20 +693,22 @@ function PhotosMultiples({ q, v, lang, onChange }) {
         <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
         <div style={{ fontSize: 13, fontWeight: 500 }}>
           {plein
-            ? (lang === "fr" ? `Limite de ${MAX_PHOTOS} photos atteinte` : `${MAX_PHOTOS}-photo limit reached`)
+            ? (lang === "fr" ? `Limite de ${max} ${T.fr} atteinte` : `${max}-${T.en.replace(/s$/, "")} limit reached`)
             : fichiers.length
-              ? (lang === "fr" ? `${fichiers.length}/${MAX_PHOTOS} photos — ajouter d'autres photos` : `${fichiers.length}/${MAX_PHOTOS} photos — add more photos`)
-              : (lang === "fr" ? `Ajouter des photos (jusqu'à ${MAX_PHOTOS})` : `Add photos (up to ${MAX_PHOTOS})`)}
+              ? (lang === "fr" ? `${fichiers.length}/${max} ${T.fr} — en ajouter d'autres` : `${fichiers.length}/${max} ${T.en} — add more`)
+              : (lang === "fr" ? T.ajouterFr : T.ajouterEn)}
         </div>
       </button>
       <input ref={fRef} type="file" multiple accept="image/jpeg,image/png,image/heic,image/heif,image/webp,.pdf" style={{ display: "none" }}
         onChange={e => { ajouter([...(e.target.files || [])]); e.target.value = ''; }} />
       {msg && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: ERROR_COLOR }}>{msg}</div>}
-      <div style={{ marginTop: 8, fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
-        {lang === "fr"
-          ? "Vous pourrez aussi ajouter des photos ou des vidéos plus tard en répondant au courriel de confirmation."
-          : "You can also add photos or videos later by replying to the confirmation email."}
-      </div>
+      {!q.preuve && (
+        <div style={{ marginTop: 8, fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
+          {lang === "fr"
+            ? "Vous pourrez aussi ajouter des photos ou des vidéos plus tard en répondant au courriel de confirmation."
+            : "You can also add photos or videos later by replying to the confirmation email."}
+        </div>
+      )}
     </div>
   );
 }
@@ -690,8 +724,11 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   const v = answers[q.slug];
   const error = fieldErrors[q.slug];
   const done = isAnswered(v) && !error;
-  const lbl = q.label[lang] || q.label.fr;
-  const ph = q.placeholder ? (q.placeholder[lang] || q.placeholder.fr) : "";
+  const garantie = answers.service_type === "warranty";
+  const libelle = (garantie && q.label_garantie) || q.label;
+  const lbl = libelle[lang] || libelle.fr;
+  const phSrc = (garantie && q.placeholder_garantie) || q.placeholder;
+  const ph = phSrc ? (phSrc[lang] || phSrc.fr) : "";
   const fRef = useRef();
 
   const toggleCb = (opt) => {
@@ -951,7 +988,7 @@ export default function AFIForm() {
   const progress = visible.length > 0 ? Math.round((answeredCount / visible.length) * 100) : 0;
 
   const hasValidationErrors = Object.values(fieldErrors).some(e => !!e);
-  const allRequiredDone = visible.filter(q => q.required).every(q => isAnswered(answers[q.slug]) && !fieldErrors[q.slug]);
+  const allRequiredDone = visible.filter(q => estRequis(q, answers)).every(q => isAnswered(answers[q.slug]) && !fieldErrors[q.slug]);
   const isEmployee = answers.client_type === "employee";
   const canSubmit = allRequiredDone && !hasValidationErrors && visible.length > 3 && (
     isEmployee
@@ -964,13 +1001,14 @@ export default function AFIForm() {
       const next = { ...prev, [slug]: value };
       const clearKeys = (keys) => keys.forEach(k => delete next[k]);
       if (slug === "request_type") clearKeys(["service_type","equipment","missing_equipment","pool_type",
-        "model_serial","purchase_date","installed_by","maintained_by","photo_required",
-        "photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
+        "model_serial","serial_number","purchase_date","install_date","installed_by","maintained_by",
+        "purchase_proof","photo_required","photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
         "part_installed","rma_resolution","return_method"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
-        "purchase_date","installed_by","maintained_by","photo_required","photo_optional","urgency"]);
-      // description volontairement conservée (texte du client ou prérempli) :
+        "serial_number","purchase_date","install_date","installed_by","maintained_by","purchase_proof",
+        "photo_required","photo_optional","urgency"]);
+      // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
       // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas ») : choisir
       // (ou rechoisir) le type de demande ou de service ne les efface plus ;
@@ -1038,11 +1076,16 @@ export default function AFIForm() {
       // Séparer les fichiers du payload JSON + compresser les images
       const payloadData = {};
       const rawFiles = [];
+      const preuves = []; // preuve d'achat : champ multipart séparé « preuve_achat »
 
       const visibleSlugs = new Set(visible.map(q => q.slug));
       Object.entries(answers).forEach(([key, val]) => {
         // Description conservée entre types : n'envoyer que ce que le client voit.
-        if (key === "description" && !visibleSlugs.has("description")) return;
+        if ((key === "description" || key === "error_code") && !visibleSlugs.has(key)) return;
+        if (key === "purchase_proof") {
+          if (visibleSlugs.has(key) && Array.isArray(val)) preuves.push(...val.filter(x => x instanceof File).slice(0, 3));
+          return;
+        }
         if (Array.isArray(val) && val.length && val.every(x => x instanceof File)) {
           rawFiles.push(...val.slice(0, MAX_PHOTOS));
         } else if (val instanceof File) {
@@ -1056,6 +1099,7 @@ export default function AFIForm() {
 
       // Compression parallèle de toutes les images
       const filesToUpload = await Promise.all(rawFiles.map(f => compressImage(f)));
+      const preuvesToUpload = await Promise.all(preuves.map(f => compressImage(f)));
 
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
@@ -1077,6 +1121,9 @@ export default function AFIForm() {
       formData.append("payload", JSON.stringify(payloadData));
       filesToUpload.forEach(file => {
         formData.append("photos", file, file.name);
+      });
+      preuvesToUpload.forEach(file => {
+        formData.append("preuve_achat", file, file.name);
       });
 
       const res = await fetch("https://afi-ops-backend.onrender.com/api/form/submit", {

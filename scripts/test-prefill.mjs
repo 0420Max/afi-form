@@ -16,12 +16,13 @@ t("arbre-chauffage : service, bris, spa, description reçue", () => {
   assert.match(r.answers.description, /Technicien requis/);
 });
 
-t("décodeur E207 : bris, bassin non présumé, ligne de code ajoutée", () => {
+t("décodeur E207 : bris, bassin non présumé, champ « Code affiché » prérempli", () => {
   const r = P("type=service&symptome=code-erreur&code=E207&source=decodeur");
   assert.equal(r.answers.service_type, "break");
   assert.deepEqual(r.answers.equipment, []);
   assert.equal(r.answers.pool_type, undefined);
-  assert.equal(r.answers.description, "Symptôme : Un code d'erreur s'affiche.\nCode affiché : E207.");
+  assert.equal(r.answers.description, "Symptôme : Un code d'erreur s'affiche.");
+  assert.equal(r.answers.error_code, "E207");
 });
 
 t("carte symptôme : pas de type de service présélectionné", () => {
@@ -60,9 +61,10 @@ t("code : casse conservée, espaces retirés, 12 car. max", () => {
   assert.equal(lireCode("E2<07"), "");
 });
 
-t("code déjà présent dans la description : pas de doublon", () => {
+t("code : champ séparé, description du client intacte", () => {
   const r = P("code=AOH&description=" + encodeURIComponent("Code affiché : AOH."));
   assert.equal(r.answers.description, "Code affiché : AOH.");
+  assert.equal(r.answers.error_code, "AOH");
 });
 
 t("Félix inchangé : tel + source=felix seulement", () => {
