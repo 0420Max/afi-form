@@ -1,6 +1,6 @@
 // Tests du préremplissage (aucun réseau, aucun ticket) : node scripts/test-prefill.mjs
 import assert from "node:assert/strict";
-import { readPrefill, lireCode } from "../src/prefill.js";
+import { readPrefill, lireCode, lireConv } from "../src/prefill.js";
 
 const P = (q) => readPrefill(new URLSearchParams(q));
 let n = 0;
@@ -71,6 +71,14 @@ t("Félix inchangé : tel + source=felix seulement", () => {
   const r = P("tel=%2B14185551234&source=felix");
   assert.equal(r.source, "felix");
   assert.deepEqual(r.answers, { phone: "4185551234", ft_client_phone: "4185551234" });
+});
+
+t("conv (AFI Assist) : lu, jamais dans les réponses affichées", () => {
+  const r = P("type=service&source=bot&conv=f1c7e2a0-0000-4000-8000-00000000test");
+  assert.equal(r.conv, "f1c7e2a0-0000-4000-8000-00000000test");
+  assert.equal(r.answers.conv, undefined);
+  assert.equal(P("conv=<script>alert(1)</script>").conv, "");
+  assert.equal(lireConv("court"), "");
 });
 
 console.log(`${n} tests réussis`);

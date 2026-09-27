@@ -9,6 +9,8 @@
 //   urgence     important | standard | incertain          → urgency (« urgent » n'est JAMAIS coché d'office)
 //   source      arbre-chauffage | decodeur | symptome | bot | faq | felix
 //   tel         10 chiffres (SMS Félix)                    → téléphone
+//   conv        identifiant de conversation d'AFI Assist  → envoyé tel quel au serveur (lien
+//               vers la conversation dans les Remarques internes du dossier) ; jamais affiché
 //
 // Règles : texte brut seulement (React n'interprète jamais de HTML), longueur
 // bornée par champ, valeur inconnue ignorée. Tout est prérempli dans des champs
@@ -54,7 +56,13 @@ export function lireCode(v) {
   return /^[A-Za-z0-9-]{1,12}$/.test(c) ? c : "";
 }
 
-// params : URLSearchParams. Renvoie { answers, source, prefilled } où
+// Identifiant de conversation du bot : lettres, chiffres, tirets (8 à 64).
+export function lireConv(v) {
+  const c = String(v || "").trim();
+  return /^[A-Za-z0-9-]{8,64}$/.test(c) ? c : "";
+}
+
+// params : URLSearchParams. Renvoie { answers, source, conv, prefilled } où
 // prefilled liste les champs remplis depuis l'URL (bandeau d'information).
 export function readPrefill(params) {
   const answers = {};
@@ -93,5 +101,5 @@ export function readPrefill(params) {
   if (code) answers.error_code = code;
   if (description) answers.description = description.slice(0, LIMITES.description);
 
-  return { answers, source, prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone") };
+  return { answers, source, conv: lireConv(get("conv")), prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone") };
 }
