@@ -1147,8 +1147,8 @@ export default function AFIForm() {
       setFieldErrors(prev => ({
         ...prev,
         _submit: lang === "fr"
-          ? "Une erreur est survenue. Vérifiez votre connexion et réessayez, ou contactez-nous au 1-888-AFI-POOL."
-          : "An error occurred. Check your connection and try again, or call us at 1-888-AFI-POOL."
+          ? "Une erreur est survenue. Vérifiez votre connexion et réessayez, ou appelez-nous au 1-800-708-7789 (sans frais) ou au (418) 871-0658 poste 2."
+          : "An error occurred. Check your connection and try again, or call us at 1-800-708-7789 (toll-free) or (418) 871-0658 ext. 2."
       }));
     } finally {
       setSubmitting(false);
