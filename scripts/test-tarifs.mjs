@@ -25,10 +25,14 @@ t("code manquant au board : jamais de montant inventé", () => {
   const g = grille(BOARD.filter((x) => x.code !== "DEP_URG_EXTRA" && x.code !== "MO_URG"), "urgent");
   assert.equal(g.mo, null); assert.equal(g.dep75, null); assert.equal(dollars(g.dep75), "—");
 });
-t("montants selon la langue : « 1 250,5 $ » en français, « $1,250.5 » en anglais", () => {
-  assert.equal(dollars(1250.5).replace(/\s/g, " "), "1 250,5 $");
-  assert.equal(dollars(1250.5, "en"), "$1,250.5");
-  assert.equal(fmt(95, "en"), "95");
+t("montants selon la langue, toujours 2 décimales : « 1 250,50 $ » / « $1,250.50 »", () => {
+  assert.equal(dollars(1250.5).replace(/\s/g, " "), "1 250,50 $");
+  assert.equal(dollars(1250.5, "en"), "$1,250.50");
+  assert.equal(dollars(95).replace(/\s/g, " "), "95,00 $");
+  assert.equal(dollars(95, "en"), "$95.00");
+  assert.equal(fmt(2, "en"), "2.00");
+  assert.equal(fmt(2), "2,00");
+  assert.equal(dollars(89.999, "en"), "$90.00", "arrondi au cent");
   assert.equal(dollars(null, "en"), "—");
 });
 
