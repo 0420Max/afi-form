@@ -54,5 +54,6 @@ export function grille(tarifs, urgency) {
   };
 }
 
-export const fmt = (v) => (v == null ? null : Number(v).toLocaleString("fr-CA", { maximumFractionDigits: 2 }));
-export const dollars = (v) => (v == null ? "—" : `${fmt(v)} $`);
+// Montants selon la langue : « 1 250,5 $ » (fr-CA) ou « $1,250.5 » (en-CA).
+export const fmt = (v, lang = "fr") => (v == null ? null : Number(v).toLocaleString(lang === "en" ? "en-CA" : "fr-CA", { maximumFractionDigits: 2 }));
+export const dollars = (v, lang = "fr") => (v == null ? "—" : lang === "en" ? `$${fmt(v, "en")}` : `${fmt(v)} $`);

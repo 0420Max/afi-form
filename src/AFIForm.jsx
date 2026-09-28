@@ -472,17 +472,17 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
   if (!serviceType || serviceType === "incomplete") return null;
   const fr = lang !== "en";
   const g = grille(tarifs, urgency);
-  const d = dollars;
+  const d = (v) => dollars(v, lang);
   const dep = (x) => fr
     ? `Déplacement : ${d(x.dep75)} (≤75 km) ou ${d(x.dep300)} (>75 km)`
     : `Travel: ${d(x.dep75)} (≤75 km) or ${d(x.dep300)} (>75 km)`;
-  const mo = (x) => fr ? `Main-d'œuvre : ${x.mo != null ? fmt(x.mo) + " $/h" : "—"}` : `Labor: ${x.mo != null ? "$" + fmt(x.mo) + "/h" : "—"}`;
+  const mo = (x) => fr ? `Main-d'œuvre : ${x.mo != null ? fmt(x.mo) + " $/h" : "—"}` : `Labor: ${x.mo != null ? "$" + fmt(x.mo, "en") + "/h" : "—"}`;
   const reg = grille(tarifs, null);
   const urgence = g.urgent ? {
     lignes: [mo(g), dep(g)],
     note: fr
       ? `Tarif d'urgence au lieu du tarif régulier (${reg.mo != null ? fmt(reg.mo) + " $/h" : "—"} ; déplacement ${d(reg.dep75)} ou ${d(reg.dep300)}).`
-      : `Emergency rate instead of the regular rate (${reg.mo != null ? "$" + fmt(reg.mo) + "/h" : "—"}; travel ${d(reg.dep75)} or ${d(reg.dep300)}).`,
+      : `Emergency rate instead of the regular rate (${reg.mo != null ? "$" + fmt(reg.mo, "en") + "/h" : "—"}; travel ${d(reg.dep75)} or ${d(reg.dep300)}).`,
   } : null;
   const taxes = fr ? "Taxes en sus." : "Taxes extra.";
 
@@ -983,6 +983,12 @@ export default function AFIForm() {
   }, []);
 
   const lang = answers.language || "fr";
+
+  // Langue du document (lecteurs d'écran, traduction du navigateur) et titre de l'onglet.
+  useEffect(() => {
+    document.documentElement.lang = lang === "en" ? "en-CA" : "fr-CA";
+    document.title = lang === "en" ? "Aqua Fibre Innovation — Service request form" : "Aqua Fibre Innovation — Formulaire de service";
+  }, [lang]);
   const visible = getVisible(answers);
   const answeredCount = visible.filter(q => q.type === "pricing_info" || (isAnswered(answers[q.slug]) && !fieldErrors[q.slug])).length;
   const progress = visible.length > 0 ? Math.round((answeredCount / visible.length) * 100) : 0;

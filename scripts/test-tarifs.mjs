@@ -1,7 +1,7 @@
 // Tests de la grille tarifaire (aucun réseau) : node scripts/test-tarifs.mjs
 // Données = copie de GET /api/tarifs/public (board Tarifs AFI) le 25 sept. 2026.
 import assert from "node:assert/strict";
-import { grille, dollars } from "../src/tarifs.js";
+import { grille, dollars, fmt } from "../src/tarifs.js";
 
 const BOARD = [
   { code: "DEP_300", montant: 300 }, { code: "DEP_75", montant: 150 }, { code: "DEP_URG_EXTRA", montant: 50 },
@@ -25,4 +25,11 @@ t("code manquant au board : jamais de montant inventé", () => {
   const g = grille(BOARD.filter((x) => x.code !== "DEP_URG_EXTRA" && x.code !== "MO_URG"), "urgent");
   assert.equal(g.mo, null); assert.equal(g.dep75, null); assert.equal(dollars(g.dep75), "—");
 });
+t("montants selon la langue : « 1 250,5 $ » en français, « $1,250.5 » en anglais", () => {
+  assert.equal(dollars(1250.5).replace(/\s/g, " "), "1 250,5 $");
+  assert.equal(dollars(1250.5, "en"), "$1,250.5");
+  assert.equal(fmt(95, "en"), "95");
+  assert.equal(dollars(null, "en"), "—");
+});
+
 console.log(`${n} tests réussis`);
