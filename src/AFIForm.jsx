@@ -248,9 +248,9 @@ const QUESTIONS = [
     options: [
       { value: "pickup",    label: { fr: "🏪 Cueillette en magasin", en: "🏪 In-store pickup" } },
       { value: "purolator", label: { fr: "📦 Purolator",             en: "📦 Purolator" } },
-      { value: "afi_150",   label: { fr: `🚚 Livraison AFI — ${LIVRAISON.afi150}$`,  en: `🚚 AFI Delivery — $${LIVRAISON.afi150}` } },
-      { value: "afi_250",   label: { fr: `🚚 Livraison AFI — ${LIVRAISON.afi250}$`,  en: `🚚 AFI Delivery — $${LIVRAISON.afi250}` } },
-      { value: "express",   label: { fr: `⚡ Express ${LIVRAISON.expressParKm}$/km`, en: `⚡ Express $${LIVRAISON.expressParKm}/km` } },
+      { value: "afi_150",   label: { fr: `🚚 Livraison AFI — ${dollars(LIVRAISON.afi150)}`,  en: `🚚 AFI Delivery — ${dollars(LIVRAISON.afi150, "en")}` } },
+      { value: "afi_250",   label: { fr: `🚚 Livraison AFI — ${dollars(LIVRAISON.afi250)}`,  en: `🚚 AFI Delivery — ${dollars(LIVRAISON.afi250, "en")}` } },
+      { value: "express",   label: { fr: `⚡ Express ${dollars(LIVRAISON.expressParKm)}/km`, en: `⚡ Express ${dollars(LIVRAISON.expressParKm, "en")}/km` } },
     ] },
   { slug: "quote_intent", type: "radio", required: true,
     label: { fr: "📜 Que souhaitez-vous faire?", en: "📜 What would you like?" },
@@ -472,17 +472,17 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
   if (!serviceType || serviceType === "incomplete") return null;
   const fr = lang !== "en";
   const g = grille(tarifs, urgency);
-  const d = dollars;
+  const d = (v) => dollars(v, lang);
   const dep = (x) => fr
     ? `Déplacement : ${d(x.dep75)} (≤75 km) ou ${d(x.dep300)} (>75 km)`
     : `Travel: ${d(x.dep75)} (≤75 km) or ${d(x.dep300)} (>75 km)`;
-  const mo = (x) => fr ? `Main-d'œuvre : ${x.mo != null ? fmt(x.mo) + " $/h" : "—"}` : `Labor: ${x.mo != null ? "$" + fmt(x.mo) + "/h" : "—"}`;
+  const mo = (x) => fr ? `Main-d'œuvre : ${x.mo != null ? fmt(x.mo) + " $/h" : "—"}` : `Labour: ${x.mo != null ? "$" + fmt(x.mo, "en") + "/h" : "—"}`;
   const reg = grille(tarifs, null);
   const urgence = g.urgent ? {
     lignes: [mo(g), dep(g)],
     note: fr
       ? `Tarif d'urgence au lieu du tarif régulier (${reg.mo != null ? fmt(reg.mo) + " $/h" : "—"} ; déplacement ${d(reg.dep75)} ou ${d(reg.dep300)}).`
-      : `Emergency rate instead of the regular rate (${reg.mo != null ? "$" + fmt(reg.mo) + "/h" : "—"}; travel ${d(reg.dep75)} or ${d(reg.dep300)}).`,
+      : `Emergency rate instead of the regular rate (${reg.mo != null ? "$" + fmt(reg.mo, "en") + "/h" : "—"}; travel ${d(reg.dep75)} or ${d(reg.dep300)}).`,
   } : null;
   const taxes = fr ? "Taxes en sus." : "Taxes extra.";
 
@@ -506,7 +506,7 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
   if (serviceType === "warranty") {
     return { forfait: fr
       ? "Demande de garantie : si la pièce est couverte après validation, elle est remplacée sans frais. Les frais de déplacement et de main-d'œuvre demeurent facturables, sauf avis contraire."
-      : "Warranty request: if the part is covered after validation, it is replaced free of charge. Travel and labor fees remain billable, unless otherwise stated.",
+      : "Warranty request: if the part is covered after validation, it is replaced free of charge. Travel and labour fees remain billable, unless otherwise stated.",
       lignes: [], notes: [], urgence };
   }
   return null;
@@ -560,11 +560,11 @@ function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang }) {
         {title}
         {urgency === "urgent" && boiteUrgence(<div>{fr
           ? "Vous avez choisi « Urgent » : des frais majorés s'appliquent (main-d'œuvre et déplacement). Notre équipe vous les confirme avant l'intervention."
-          : "You selected “Urgent”: higher fees apply (labor and travel). Our team will confirm them before the visit."}</div>)}
+          : "You selected “Urgent”: higher fees apply (labour and travel). Our team will confirm them before the visit."}</div>)}
         <div>
           {fr
             ? "Les tarifs en vigueur vous seront communiqués par notre équipe. Main-d'œuvre, déplacement et forfaits selon la grille tarifaire AFI."
-            : "Current rates will be communicated by our team. Labor, travel and packages according to AFI's rate schedule."}
+            : "Current rates will be communicated by our team. Labour, travel and packages according to AFI's rate schedule."}
         </div>
       </div>
     );
@@ -983,6 +983,12 @@ export default function AFIForm() {
   }, []);
 
   const lang = answers.language || "fr";
+
+  // Langue du document (lecteurs d'écran, traduction du navigateur) et titre de l'onglet.
+  useEffect(() => {
+    document.documentElement.lang = lang === "en" ? "en-CA" : "fr-CA";
+    document.title = lang === "en" ? "Aqua Fibre Innovation — Service request form" : "Aqua Fibre Innovation — Formulaire de service";
+  }, [lang]);
   const visible = getVisible(answers);
   const answeredCount = visible.filter(q => q.type === "pricing_info" || (isAnswered(answers[q.slug]) && !fieldErrors[q.slug])).length;
   const progress = visible.length > 0 ? Math.round((answeredCount / visible.length) * 100) : 0;

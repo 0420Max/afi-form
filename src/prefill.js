@@ -11,6 +11,8 @@
 //   tel         10 chiffres (SMS Félix)                    → téléphone
 //   conv        identifiant de conversation d'AFI Assist  → envoyé tel quel au serveur (lien
 //               vers la conversation dans les Remarques internes du dossier) ; jamais affiché
+//   lang        en (page d'assistance /en, bot en anglais) → question « Langue » présélectionnée
+//               (modifiable) ; toute autre valeur : ignorée (français par défaut)
 //
 // Règles : texte brut seulement (React n'interprète jamais de HTML), longueur
 // bornée par champ, valeur inconnue ignorée. Tout est prérempli dans des champs
@@ -18,19 +20,19 @@
 
 export const SOURCES = ["arbre-chauffage", "decodeur", "symptome", "bot", "faq", "felix"];
 
-// Libellé repris dans la description ; spa = bassin connu (spa présélectionné).
+// Libellé repris dans la description (langue du formulaire) ; spa = bassin connu (spa présélectionné).
 export const SYMPTOMES = {
-  "chauffage":              { fr: "Le spa ne chauffe pas", spa: true },
-  "code-erreur":            { fr: "Un code d'erreur s'affiche" },
-  "eau-trouble":            { fr: "Eau trouble" },
-  "fuite":                  { fr: "Fuite d'eau" },
-  "pompe":                  { fr: "Problème de pompe" },
-  "clavier":                { fr: "Problème de clavier" },
-  "eclairage":              { fr: "Problème d'éclairage" },
-  "garantie":               { fr: "Question de garantie" },
-  "ouverture-saisonniere":  { fr: "Ouverture saisonnière" },
-  "hivernage":              { fr: "Fermeture / hivernage" },
-  "remplacement-araignee":  { fr: "Remplacement de l'araignée" },
+  "chauffage":              { fr: "Le spa ne chauffe pas", en: "The spa isn't heating", spa: true },
+  "code-erreur":            { fr: "Un code d'erreur s'affiche", en: "An error code is displayed" },
+  "eau-trouble":            { fr: "Eau trouble", en: "Cloudy water" },
+  "fuite":                  { fr: "Fuite d'eau", en: "Water leak" },
+  "pompe":                  { fr: "Problème de pompe", en: "Pump problem" },
+  "clavier":                { fr: "Problème de clavier", en: "Keypad problem" },
+  "eclairage":              { fr: "Problème d'éclairage", en: "Lighting problem" },
+  "garantie":               { fr: "Question de garantie", en: "Warranty question" },
+  "ouverture-saisonniere":  { fr: "Ouverture saisonnière", en: "Seasonal opening" },
+  "hivernage":              { fr: "Fermeture / hivernage", en: "Closing / winterizing" },
+  "remplacement-araignee":  { fr: "Remplacement de l'araignée", en: "Sand filter lateral replacement" },
 };
 
 // « urgent » absent volontairement : frais majorés, c'est au client de le choisir.
@@ -68,6 +70,10 @@ export function readPrefill(params) {
   const answers = {};
   const get = (k) => (params && params.get(k)) || "";
 
+  // Langue : seul « en » est lu ; le client peut toujours la changer.
+  const en = get("lang").trim().toLowerCase() === "en";
+  if (en) answers.language = "en";
+
   const tel = get("tel").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
   if (tel.length === 10) { answers.phone = tel; answers.ft_client_phone = tel; }
 
@@ -93,7 +99,7 @@ export function readPrefill(params) {
 
   if (!description) {
     const lignes = [];
-    if (symptome) lignes.push(`Symptôme : ${symptome.fr}.`);
+    if (symptome) lignes.push(en ? `Symptom: ${symptome.en}.` : `Symptôme : ${symptome.fr}.`);
     description = lignes.join("\n");
   }
   // Le code a son propre champ, visible et modifiable ; le serveur l'ajoute à
@@ -101,5 +107,6 @@ export function readPrefill(params) {
   if (code) answers.error_code = code;
   if (description) answers.description = description.slice(0, LIMITES.description);
 
-  return { answers, source, conv: lireConv(get("conv")), prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone") };
+  // prefilled : champs affichés dans le bandeau « prérempli » (la langue n'en fait pas partie).
+  return { answers, source, conv: lireConv(get("conv")), prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone" && k !== "language") };
 }

@@ -1,6 +1,6 @@
 // Tests du préremplissage (aucun réseau, aucun ticket) : node scripts/test-prefill.mjs
 import assert from "node:assert/strict";
-import { readPrefill, lireCode, lireConv } from "../src/prefill.js";
+import { readPrefill, lireCode, lireConv, SYMPTOMES } from "../src/prefill.js";
 
 const P = (q) => readPrefill(new URLSearchParams(q));
 let n = 0;
@@ -79,6 +79,26 @@ t("conv (AFI Assist) : lu, jamais dans les réponses affichées", () => {
   assert.equal(r.answers.conv, undefined);
   assert.equal(P("conv=<script>alert(1)</script>").conv, "");
   assert.equal(lireConv("court"), "");
+});
+
+t("lang=en : langue présélectionnée, description en anglais, bandeau inchangé", () => {
+  const r = P("type=service&symptome=chauffage&source=symptome&lang=en");
+  assert.equal(r.answers.language, "en");
+  assert.equal(r.answers.description, "Symptom: The spa isn't heating.");
+  assert.ok(!r.prefilled.includes("language"), "la langue n'apparaît pas dans le bandeau « prérempli »");
+  assert.deepEqual(P("lang=en").prefilled, [], "lang seul : aucun bandeau");
+});
+
+t("lang absent ou autre valeur : aucune langue imposée, description en français", () => {
+  for (const q of ["type=service&symptome=fuite", "type=service&symptome=fuite&lang=fr", "type=service&symptome=fuite&lang=<b>"]) {
+    const r = P(q);
+    assert.equal(r.answers.language, undefined, q);
+    assert.equal(r.answers.description, "Symptôme : Fuite d'eau.", q);
+  }
+});
+
+t("chaque symptôme a son libellé anglais", () => {
+  for (const [k, v] of Object.entries(SYMPTOMES)) assert.ok(v.en && v.en.trim(), k);
 });
 
 console.log(`${n} tests réussis`);
