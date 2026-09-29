@@ -26,6 +26,20 @@ t("arbre-pompe : service, bris, bassin non présumé (piscine ou spa), descripti
   assert.match(r.answers.description, /ne s'amorce toujours pas/);
 });
 
+t("demande de pièce (bot) : type Achat, pièce et modèle préremplis, rien d'autre présumé", () => {
+  const r = P("type=piece&piece=" + encodeURIComponent("Carte électronique pack in.xe") + "&modele=Everest&source=bot");
+  assert.equal(r.answers.request_type, "purchase");
+  assert.equal(r.answers.part_description, "Carte électronique pack in.xe\nModèle : Everest");
+  assert.equal(r.answers.service_type, undefined);
+  assert.equal(r.answers.description, undefined);
+  assert.equal(r.source, "bot");
+  const en = P("type=piece&piece=Part&modele=Everest&lang=en");
+  assert.equal(en.answers.part_description, "Part\nModel: Everest");
+  const long = P("type=piece&piece=" + "x".repeat(900));
+  assert.equal(long.answers.part_description.length, 300);
+  assert.equal(P("type=piece").answers.part_description, undefined);
+});
+
 t("décodeur E207 : bris, bassin non présumé, champ « Code affiché » prérempli", () => {
   const r = P("type=service&symptome=code-erreur&code=E207&source=decodeur");
   assert.equal(r.answers.service_type, "break");

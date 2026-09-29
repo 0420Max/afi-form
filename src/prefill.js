@@ -2,7 +2,9 @@
 // Préremplissage du formulaire depuis l'URL (page d'assistance, bot, Félix).
 //
 // Convention UNIQUE partagée avec afi-assistance (6 paramètres + tel) :
-//   type        service                                   → request_type
+//   type        service | piece                           → request_type (piece = « Achat d'une pièce »)
+//   piece       pièce demandée (type=piece), 300 car. max  → « Numéro ou description de la pièce »
+//   modele      modèle du spa ou de la piscine (type=piece), 120 car. max → ajouté à la pièce
 //   symptome    liste fermée (SYMPTOMES ci-dessous)        → texte de la description (+ spa si connu)
 //   code        code d'erreur affiché, 12 car. max        → champ « Code affiché » (error_code)
 //   description résumé en texte brut, 1800 car. max        → champ « Décrivez le problème »
@@ -42,7 +44,7 @@ const URGENCES = { important: "important", standard: "standard", incertain: "uns
 // diagnostic finissent par « Technicien requis », le décodeur par un code de panne.
 const SOURCES_BRIS = ["arbre-chauffage", "arbre-pompe", "decodeur"];
 
-export const LIMITES = { description: 1800, code: 12 };
+export const LIMITES = { description: 1800, code: 12, piece: 300, modele: 120 };
 
 // Texte brut : retire les caractères de contrôle (sauf saut de ligne) et borne la longueur.
 export function texteBrut(v, max) {
@@ -81,7 +83,17 @@ export function readPrefill(params) {
   const src = get("source").trim().toLowerCase();
   const source = SOURCES.includes(src) ? src : "";
 
-  const service = get("type").trim().toLowerCase() === "service";
+  const type = get("type").trim().toLowerCase();
+  const service = type === "service";
+  // Demande de pièce (bot : pièce absente de la boutique) : type « Achat d'une pièce »,
+  // pièce et modèle préremplis, modifiables. Rien d'autre n'est présumé.
+  if (type === "piece") {
+    answers.request_type = "purchase";
+    const piece = texteBrut(get("piece"), LIMITES.piece);
+    const modele = texteBrut(get("modele"), LIMITES.modele);
+    const lignes = [piece, modele ? (en ? `Model: ${modele}` : `Modèle : ${modele}`) : ""].filter(Boolean);
+    if (lignes.length) answers.part_description = lignes.join("\n");
+  }
   const symKey = get("symptome").trim().toLowerCase();
   const symptome = Object.prototype.hasOwnProperty.call(SYMPTOMES, symKey) ? SYMPTOMES[symKey] : null;
   const code = lireCode(get("code"));
