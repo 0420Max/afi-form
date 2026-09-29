@@ -1110,7 +1110,7 @@ export default function AFIForm() {
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
-      // Provenance (felix, arbre-chauffage, decodeur, symptome, bot, faq) :
+      // Provenance (felix, arbre-chauffage, arbre-pompe, decodeur, symptome, bot, faq) :
       // présente seulement si arrivée par ?source= (liste fermée, cf. prefill.js).
       if (source) payloadData.source = source;
       // Conversation d'AFI Assist d'où vient le lien (?conv=) : le dossier y sera relié.

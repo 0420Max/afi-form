@@ -7,7 +7,7 @@
 //   code        code d'erreur affiché, 12 car. max        → champ « Code affiché » (error_code)
 //   description résumé en texte brut, 1800 car. max        → champ « Décrivez le problème »
 //   urgence     important | standard | incertain          → urgency (« urgent » n'est JAMAIS coché d'office)
-//   source      arbre-chauffage | decodeur | symptome | bot | faq | felix
+//   source      arbre-chauffage | arbre-pompe | decodeur | symptome | bot | faq | felix
 //   tel         10 chiffres (SMS Félix)                    → téléphone
 //   conv        identifiant de conversation d'AFI Assist  → envoyé tel quel au serveur (lien
 //               vers la conversation dans les Remarques internes du dossier) ; jamais affiché
@@ -18,7 +18,7 @@
 // bornée par champ, valeur inconnue ignorée. Tout est prérempli dans des champs
 // visibles et modifiables ; rien n'est envoyé automatiquement.
 
-export const SOURCES = ["arbre-chauffage", "decodeur", "symptome", "bot", "faq", "felix"];
+export const SOURCES = ["arbre-chauffage", "arbre-pompe", "decodeur", "symptome", "bot", "faq", "felix"];
 
 // Libellé repris dans la description (langue du formulaire) ; spa = bassin connu (spa présélectionné).
 export const SYMPTOMES = {
@@ -38,8 +38,9 @@ export const SYMPTOMES = {
 // « urgent » absent volontairement : frais majorés, c'est au client de le choisir.
 const URGENCES = { important: "important", standard: "standard", incertain: "unsure" };
 
-// Type de service présélectionné seulement depuis ces sources (modifiable).
-const SOURCES_BRIS = ["arbre-chauffage", "decodeur"];
+// Type de service présélectionné seulement depuis ces sources (modifiable) : les arbres de
+// diagnostic finissent par « Technicien requis », le décodeur par un code de panne.
+const SOURCES_BRIS = ["arbre-chauffage", "arbre-pompe", "decodeur"];
 
 export const LIMITES = { description: 1800, code: 12 };
 
