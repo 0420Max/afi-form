@@ -16,6 +16,16 @@ t("arbre-chauffage : service, bris, spa, description reçue", () => {
   assert.match(r.answers.description, /Technicien requis/);
 });
 
+t("arbre-pompe : service, bris, bassin non présumé (piscine ou spa), description reçue", () => {
+  const r = P("type=service&symptome=pompe&source=arbre-pompe&description=" + encodeURIComponent("Symptôme : La pompe ne s'amorce pas.\nRésultat : la pompe Moov ne s'amorce toujours pas."));
+  assert.equal(r.source, "arbre-pompe");
+  assert.equal(r.answers.request_type, "service");
+  assert.equal(r.answers.service_type, "break");
+  assert.deepEqual(r.answers.equipment, []);
+  assert.equal(r.answers.pool_type, undefined);
+  assert.match(r.answers.description, /ne s'amorce toujours pas/);
+});
+
 t("décodeur E207 : bris, bassin non présumé, champ « Code affiché » prérempli", () => {
   const r = P("type=service&symptome=code-erreur&code=E207&source=decodeur");
   assert.equal(r.answers.service_type, "break");
