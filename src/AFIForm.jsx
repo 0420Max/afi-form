@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { readPrefill, restaurerPrefill } from "./prefill.js";
+import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./prefill.js";
+
+// Serveur AFI Ops. VITE_AFI_BACKEND seulement pour les essais locaux (build sans cette
+// variable = production).
+const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
 import { grille, dollars, fmt, LIVRAISON } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
@@ -939,13 +943,25 @@ function readUrlPrefill() {
   try { return readPrefill(new URLSearchParams(window.location.search)); }
   catch (_e) { return { answers: {}, source: "", conv: "", prefilled: [] }; }
 }
+// Lien court de Félix (?f=jeton) : les réponses sont lues au serveur, au montage.
+function readUrlJeton() {
+  try { return lireJeton(new URLSearchParams(window.location.search)); }
+  catch (_e) { return ""; }
+}
 
 // ─── MAIN FORM ────────────────────────────────────────────────────────────────
 
 export default function AFIForm() {
-  const [prefill] = useState(readUrlPrefill);
+  const [jeton, setJeton] = useState(readUrlJeton);
+  // Lien court : pas de lecture des anciens paramètres (le lien de Félix ne porte que ?f=).
+  const [prefill, setPrefill] = useState(() => (jeton ? { answers: {}, source: "felix", conv: "", prefilled: [] } : readUrlPrefill()));
   const [answers, setAnswers] = useState(() => ({ ...prefill.answers }));
   const [prefillNote, setPrefillNote] = useState(() => prefill.prefilled.some(k => k !== "phone"));
+  // Lecture du lien court : le formulaire attend au plus DELAI_LIEN_MS (3 s), puis s'ouvre
+  // pré-rempli, ou vide avec la mention « lien expiré » (jeton expiré, utilisé, inconnu ou
+  // serveur muet).
+  const [chargementLien, setChargementLien] = useState(() => !!jeton);
+  const [lienExpire, setLienExpire] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState("");
@@ -955,6 +971,23 @@ export default function AFIForm() {
   // source (Félix, page d'assistance, bot) : lue une fois, liste fermée.
   const source = prefill.source;
 
+  useEffect(() => {
+    if (!jeton) return undefined;
+    let annule = false;
+    chargerLienCourt(jeton, { base: AFI_BACKEND }).then((r) => {
+      if (annule) return;
+      if (r.etat === "ok") {
+        setPrefill(r);
+        setAnswers((prev) => ({ ...r.answers, ...prev }));
+        setPrefillNote(r.prefilled.some((k) => k !== "phone"));
+      } else {
+        setLienExpire(true);
+      }
+      setChargementLien(false);
+    });
+    return () => { annule = true; };
+  }, [jeton]);
+
   // Fetch tarifs au montage — best effort, ne jamais bloquer le formulaire.
   // Durci : retry (cold start / échec transitoire) et ne verrouille
   // tarifsError qu'APRÈS épuisement des tentatives, jamais sur un seul échec.
@@ -962,7 +995,7 @@ export default function AFIForm() {
     let cancelled = false;
     async function loadTarifs(attempt) {
       try {
-        const r = await fetch("https://afi-ops-backend.onrender.com/api/tarifs/public");
+        const r = await fetch(`${AFI_BACKEND}/api/tarifs/public`);
         if (!r.ok) throw new Error("HTTP " + r.status);
         const data = await r.json();
         if (cancelled) return;
@@ -1111,6 +1144,10 @@ export default function AFIForm() {
       if (source) payloadData.source = source;
       // Conversation d'AFI Assist d'où vient le lien (?conv=) : le dossier y sera relié.
       if (prefill.conv) payloadData.conv = prefill.conv;
+      // Lien court de Félix (?f=) : le serveur efface les réponses gardées et relie la
+      // demande à la fiche d'appel. Envoyé même si le lien était expiré (la fiche d'appel
+      // peut encore être reliée) ; la provenance reste felix (canal « Agent vocal »).
+      if (jeton) { payloadData.jeton = jeton; payloadData.source = "felix"; }
 
       // Snapshot textuel de ce que PricingInfo a affiché — utilisé côté
       // backend pour le log Monday du consentement tarifaire. On utilise
@@ -1130,7 +1167,7 @@ export default function AFIForm() {
         formData.append("preuve_achat", file, file.name);
       });
 
-      const res = await fetch("https://afi-ops-backend.onrender.com/api/form/submit", {
+      const res = await fetch(`${AFI_BACKEND}/api/form/submit`, {
         method: "POST",
         body: formData,
         // Ne pas mettre Content-Type — le browser le set automatiquement avec boundary
@@ -1165,7 +1202,7 @@ export default function AFIForm() {
         🎫 {ticketId}
       </div>
       <div style={{ marginTop: 24 }}>
-        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setPrefillNote(false); }} style={{
+        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setPrefillNote(false); setJeton(""); setLienExpire(false); }} style={{
           padding: "9px 20px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG,
           fontFamily: "inherit", fontSize: 13, cursor: "pointer", color: MUTED,
         }}>
@@ -1189,6 +1226,12 @@ export default function AFIForm() {
       <div style={{ fontSize: 11, color: MUTED, textAlign: "right", marginBottom: 16 }}>
         {answeredCount}/{visible.length} {lang === "fr" ? "répondu" : "answered"} · {progress}%
       </div>
+      {lienExpire && (
+        <div role="status" style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 10, padding: "12px 16px",
+          marginBottom: 16, fontSize: 13, color: "#664d03", lineHeight: 1.5 }}>
+          {lang === "en" ? "This link has expired: simply fill in the form." : "Lien expiré, remplis simplement le formulaire."}
+        </div>
+      )}
       {prefillNote && (
         <div style={{ background: AL, border: `1px solid ${A}`, borderRadius: 10, padding: "12px 16px",
           marginBottom: 16, fontSize: 13, color: TEXT, lineHeight: 1.5 }}>
@@ -1206,7 +1249,12 @@ export default function AFIForm() {
             : "Fill this form on behalf of your client. Provide minimum information to create the ticket quickly."}
         </div>
       )}
-      {visible.map((q, i) => (
+      {chargementLien && (
+        <div role="status" aria-live="polite" style={{ textAlign: "center", padding: "28px 0", fontSize: 14, color: MUTED }}>
+          {lang === "en" ? "Loading your request…" : "Chargement de ta demande…"}
+        </div>
+      )}
+      {!chargementLien && visible.map((q, i) => (
         <QCard key={q.slug} q={q} lang={lang} answers={answers}
           onChange={handleChange} onBlur={handleBlur}
           fieldErrors={fieldErrors}
