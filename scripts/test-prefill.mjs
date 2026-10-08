@@ -1,6 +1,6 @@
 // Tests du préremplissage (aucun réseau, aucun ticket) : node scripts/test-prefill.mjs
 import assert from "node:assert/strict";
-import { readPrefill, lireCode, lireConv, SYMPTOMES } from "../src/prefill.js";
+import { readPrefill, lireCode, lireConv, SYMPTOMES, restaurerPrefill } from "../src/prefill.js";
 
 const P = (q) => readPrefill(new URLSearchParams(q));
 let n = 0;
@@ -123,6 +123,50 @@ t("lang absent ou autre valeur : aucune langue imposée, description en françai
 
 t("chaque symptôme a son libellé anglais", () => {
   for (const [k, v] of Object.entries(SYMPTOMES)) assert.ok(v.en && v.en.trim(), k);
+});
+
+// Effacement de handleChange (AFIForm.jsx), reproduit pour les clés concernées.
+const EFFACE_SERVICE = ["equipment", "missing_equipment", "pool_type", "urgency"];
+const EFFACE_DEMANDE = ["service_type", ...EFFACE_SERVICE, "part_description"];
+const choisir = (avant, prefill, slug, value) => {
+  const next = { ...avant, [slug]: value };
+  for (const k of slug === "request_type" ? EFFACE_DEMANDE : EFFACE_SERVICE) delete next[k];
+  return restaurerPrefill(next, prefill.answers, slug, value);
+};
+
+t("Félix : l'urgence préremplie survit au clic sur « Bris » (fiche AFI-1229)", () => {
+  const p = P("type=service&description=" + encodeURIComponent("Pompe Moov AI affiche E001") + "&code=E001&urgence=important&source=felix&tel=4185550141");
+  assert.equal(p.answers.service_type, undefined, "felix : type de service non présélectionné");
+  assert.equal(p.answers.urgency, "important");
+  const apres = choisir(p.answers, p, "service_type", "break");
+  assert.equal(apres.urgency, "important", "urgence conservée");
+  assert.equal(apres.description, "Pompe Moov AI affiche E001");
+  assert.equal(apres.error_code, "E001");
+});
+
+t("rechoisir « Service » remet aussi l'urgence préremplie", () => {
+  const p = P("type=service&description=x&urgence=incertain&source=felix");
+  const apres = choisir({ ...p.answers, service_type: "break" }, p, "request_type", "service");
+  assert.equal(apres.urgency, "unsure");
+});
+
+t("une urgence choisie par le client n'est jamais écrasée par le préremplissage", () => {
+  const p = P("type=service&description=x&urgence=important&source=felix");
+  const next = { request_type: "service", service_type: "break", urgency: "standard" };
+  restaurerPrefill(next, p.answers, "service_type", "break");
+  assert.equal(next.urgency, "standard");
+});
+
+t("sans urgence dans le lien : rien n'est inventé", () => {
+  const p = P("type=service&description=x&source=felix");
+  assert.equal(choisir(p.answers, p, "service_type", "break").urgency, undefined);
+});
+
+t("pièce (Félix ou bot) : rechoisir « Achat » garde la pièce préremplie", () => {
+  const p = P("type=piece&piece=" + encodeURIComponent("Cartouche Pleatco PRB50") + "&source=felix");
+  const apres = choisir(p.answers, p, "request_type", "purchase");
+  assert.equal(apres.part_description, "Cartouche Pleatco PRB50");
+  assert.equal(choisir(p.answers, p, "request_type", "rma").part_description, undefined, "autre type : effacée");
 });
 
 console.log(`${n} tests réussis`);

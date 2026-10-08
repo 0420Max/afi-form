@@ -123,3 +123,26 @@ export function readPrefill(params) {
   // prefilled : champs affichés dans le bandeau « prérempli » (la langue n'en fait pas partie).
   return { answers, source, conv: lireConv(get("conv")), prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone" && k !== "language") };
 }
+
+// Réponses préremplies remises en place après un changement de type : handleChange
+// (AFIForm.jsx) efface les réponses qui dépendent du type de demande ou de service.
+// Sans ça, l'urgence triée par Félix était perdue dès que le client cliquait
+// « Bris » (felix n'est pas dans SOURCES_BRIS, le type n'est donc pas présélectionné) :
+// fiche AFI-1229, 8 oct. 2026, « Standard » au lieu de « important ».
+// Seules les clés VIDES après l'effacement sont remises (jamais une réponse du client).
+export function clesARestaurer(slug, value) {
+  if (slug === "service_type") return ["equipment", "pool_type", "urgency"];
+  if (slug === "request_type" && value === "service") return ["service_type", "equipment", "pool_type", "urgency"];
+  if (slug === "request_type" && value === "purchase") return ["part_description"];
+  return [];
+}
+
+// next : réponses après effacement (modifié en place et renvoyé) ;
+// prefillAnswers : réponses lues de l'URL au chargement.
+export function restaurerPrefill(next, prefillAnswers, slug, value) {
+  for (const k of clesARestaurer(slug, value)) {
+    const v = prefillAnswers && prefillAnswers[k];
+    if (next[k] === undefined && v !== undefined) next[k] = Array.isArray(v) ? [...v] : v;
+  }
+  return next;
+}
