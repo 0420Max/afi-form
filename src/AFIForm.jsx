@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { readPrefill } from "./prefill.js";
+import { readPrefill, restaurerPrefill } from "./prefill.js";
 import { grille, dollars, fmt, LIVRAISON } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
@@ -1016,15 +1016,10 @@ export default function AFIForm() {
         "photo_required","photo_optional","urgency"]);
       // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
-      // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas ») : choisir
-      // (ou rechoisir) le type de demande ou de service ne les efface plus ;
-      // le client peut toujours les changer ou les décocher.
-      const restaurer = slug === "service_type" ? ["equipment", "pool_type"]
-        : slug === "request_type" && value === "service" ? ["service_type", "equipment", "pool_type"] : [];
-      for (const k of restaurer) {
-        const v = prefill.answers[k];
-        if (next[k] === undefined && v !== undefined) next[k] = Array.isArray(v) ? [...v] : v;
-      }
+      // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas », urgence
+      // triée par Félix, pièce demandée) : choisir (ou rechoisir) le type de demande
+      // ou de service ne les efface plus ; le client peut toujours les changer.
+      restaurerPrefill(next, prefill.answers, slug, value);
 
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
@@ -1086,8 +1081,9 @@ export default function AFIForm() {
 
       const visibleSlugs = new Set(visible.map(q => q.slug));
       Object.entries(answers).forEach(([key, val]) => {
-        // Description conservée entre types : n'envoyer que ce que le client voit.
-        if ((key === "description" || key === "error_code") && !visibleSlugs.has(key)) return;
+        // Description, urgence et pièce conservées ou restaurées entre types :
+        // n'envoyer que ce que le client voit.
+        if (["description", "error_code", "urgency", "part_description"].includes(key) && !visibleSlugs.has(key)) return;
         if (key === "purchase_proof") {
           if (visibleSlugs.has(key) && Array.isArray(val)) preuves.push(...val.filter(x => x instanceof File).slice(0, 3));
           return;
