@@ -1144,6 +1144,8 @@ export default function AFIForm() {
       if (source) payloadData.source = source;
       // Conversation d'AFI Assist d'où vient le lien (?conv=) : le dossier y sera relié.
       if (prefill.conv) payloadData.conv = prefill.conv;
+      // Symptôme choisi dans le bot ou la page d'assistance (?symptome=) : sujet du dossier côté serveur.
+      if (prefill.symptome) payloadData.symptome = prefill.symptome;
       // Lien court de Félix (?f=) : le serveur efface les réponses gardées et relie la
       // demande à la fiche d'appel. Envoyé même si le lien était expiré (la fiche d'appel
       // peut encore être reliée) ; la provenance reste felix (canal « Agent vocal »).

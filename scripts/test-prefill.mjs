@@ -240,4 +240,13 @@ t("AFIForm : lien court lu au montage, mention « lien expiré », jeton transmi
   assert.ok(!/"https:\/\/afi-ops-backend\.onrender\.com\/api\//.test(src), "une seule adresse du serveur (AFI_BACKEND)");
 });
 
+t("symptome : clé de la liste fermée renvoyée au serveur (sujet du dossier) ; inconnue ou absente → vide", () => {
+  assert.equal(P("type=service&symptome=code-erreur&source=bot").symptome, "code-erreur");
+  assert.equal(P("type=service&symptome=Fuite&source=bot").symptome, "fuite");
+  assert.equal(P("type=service&symptome=nimporte").symptome, "");
+  assert.equal(P("type=service").symptome, "");
+  const src = fs.readFileSync(new URL("../src/AFIForm.jsx", import.meta.url), "utf8");
+  assert.match(src, /if \(prefill\.symptome\) payloadData\.symptome = prefill\.symptome;/);
+});
+
 console.log(`${n} tests réussis`);
