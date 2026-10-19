@@ -123,7 +123,9 @@ export function readPrefill(params) {
   if (description) answers.description = description.slice(0, LIMITES.description);
 
   // prefilled : champs affichés dans le bandeau « prérempli » (la langue n'en fait pas partie).
-  return { answers, source, conv: lireConv(get("conv")), prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone" && k !== "language") };
+  // symptome : clé de la liste fermée, renvoyée telle quelle au serveur (sujet du dossier, Rapport « Soutien
+  // technique » d'AFI OPS) ; jamais affichée. Vide si absente ou inconnue.
+  return { answers, source, conv: lireConv(get("conv")), symptome: symptome ? symKey : "", prefilled: Object.keys(answers).filter((k) => k !== "ft_client_phone" && k !== "language") };
 }
 
 // Réponses préremplies remises en place après un changement de type : handleChange
