@@ -175,7 +175,9 @@ const LISTES = {
   pool_type: ["pool", "spa"],
   urgency: ["important", "standard", "unsure"], // « urgent » n'est JAMAIS coché d'office
 };
-const TEXTES = { model_serial: 120, serial_number: 80, installed_by: 80, maintained_by: 80, description: 1800, part_description: 400 };
+// full_name / address : nom et adresse DITS par le client à Félix (jamais demandés), gardés au serveur
+// (jamais dans l'adresse du lien) ; modifiables comme tout prérempli.
+const TEXTES = { model_serial: 120, serial_number: 80, installed_by: 80, maintained_by: 80, description: 1800, part_description: 400, full_name: 120, address: 200 };
 const EQUIPEMENTS = ["pool", "spa", "heater", "pump", "filter", "lighting", "cover", "salt", "heatpump", "blower"];
 const dateValide = (v) => {
   const s = String(v || "");
