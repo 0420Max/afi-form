@@ -193,13 +193,27 @@ t("réponses du serveur : tous les champs de la liste fermée, rien d'autre", ()
     language: "fr", request_type: "service", service_type: "break", pool_type: "spa", urgency: "important",
     model_serial: "Moov MP15Ai", installed_by: "AFI", description: "Pompe Moov AI, code E001 confirmé.",
     equipment: ["pump"], purchase_date: "2025-06-01", error_code: "E001", access_without_presence: true,
-    phone: "4185550141", ft_client_phone: "4185550141",
+    phone: "4185550141", ft_client_phone: "4185550141", full_name: "Jean Client",
   });
-  assert.ok(!("full_name" in r.answers) && !("email" in r.answers), "jamais nom ni courriel");
+  // Oct. 2026 : le nom DIT à Félix est prérempli ; le courriel, jamais.
+  assert.ok(!("email" in r.answers), "jamais le courriel");
   assert.ok(!r.prefilled.includes("ft_client_phone") && !r.prefilled.includes("language"));
   assert.equal(reponsesLienCourt({ ...SERVEUR, urgency: "urgent" }).answers.urgency, undefined, "jamais urgent d'office");
   const piece = reponsesLienCourt({ request_type: "purchase", part_description: "Cartouche Pleatco PRB50", description: "x", service_type: "break" });
   assert.deepEqual(piece.answers, { request_type: "purchase", part_description: "Cartouche Pleatco PRB50" });
+});
+
+t("lien court : nom et adresse dits à Félix préremplis (texte brut, bornés) ; jamais le courriel", () => {
+  const r = reponsesLienCourt({ ...SERVEUR, full_name: "Julie Tremblay", address: "123 rue des Érables, Lévis", email: "x@y.ca" });
+  assert.equal(r.answers.full_name, "Julie Tremblay");
+  assert.equal(r.answers.address, "123 rue des Érables, Lévis");
+  assert.equal(r.answers.email, undefined, "le courriel n'est jamais prérempli");
+  assert.ok(r.prefilled.includes("full_name") && r.prefilled.includes("address"));
+  const long = reponsesLienCourt({ full_name: "n".repeat(300), address: "a".repeat(300) });
+  assert.equal(long.answers.full_name.length, 120);
+  assert.equal(long.answers.address.length, 200);
+  // Valables aussi pour une demande d'achat (champs communs du formulaire).
+  assert.equal(reponsesLienCourt({ request_type: "purchase", full_name: "Marc" }).answers.full_name, "Marc");
 });
 
 t("lien court : l'urgence et le type de service survivent au parcours du formulaire", () => {
