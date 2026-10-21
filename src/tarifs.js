@@ -21,6 +21,8 @@ export const CODES = {
   fermeture: "SVC_FERMETURE",
   raccordement: "SVC_RACCORDEMENT",
   raccordementV2: "SVC_RACCORDEMENT_V2",
+  raccordement2Temps: "SVC_RACCORDEMENT_2TEMPS", // forfait en 2 temps (remplace SVC_RACCORDEMENT, pas en plus)
+  bouchonJet: "SVC_BOUCHON_JET", // bouchons d'hiver, par jet (fermeture)
   raccordementAppareil: "SVC_RACCORDEMENT_APPAREIL",
   raccordementInclus: "SVC_RACCORDEMENT_INCLUS", // NOMBRE d'appareils inclus (pas un montant)
   testPression: "SVC_TEST_PRESSION",
@@ -40,6 +42,18 @@ export function nbAppareils(a) {
   const n = Number(String(v == null ? "" : v).trim());
   if (!Number.isInteger(n) || n < 1) return null;
   if (a.plumbing_devices === "8+" && n < 8) return null;
+  return n;
+}
+
+export const JETS_MAX = 100;
+
+/** Jets de la fermeture : 0, 12, 20, 30, 48, ou « autre » → nombre exact. → entier ≥ 0 | null */
+export function nbJets(a) {
+  if (!a) return null;
+  const v = a.closing_jets === "autre" ? a.closing_jets_exact : a.closing_jets;
+  const t = String(v == null ? "" : v).trim();
+  const n = Number(t);
+  if (t === "" || !Number.isInteger(n) || n < 0) return null;
   return n;
 }
 
@@ -74,6 +88,8 @@ export function grille(tarifs, urgency) {
     fermeture: m(CODES.fermeture),
     raccordement: m(CODES.raccordement),
     raccordementV2: m(CODES.raccordementV2),
+    raccordement2Temps: m(CODES.raccordement2Temps),
+    bouchonJet: m(CODES.bouchonJet),
     raccordementAppareil: m(CODES.raccordementAppareil),
     raccordementInclus: m(CODES.raccordementInclus),
     testPression: m(CODES.testPression),
@@ -91,11 +107,18 @@ export function reservation(tarifs, a) {
   const g = grille(tarifs, a.urgency);
   const s = a.service_type;
   const lignes = [];
-  if (s === "opening" || s === "closing") {
-    const v = s === "opening" ? g.ouverture : g.fermeture;
-    if (v == null) return null;
-    lignes.push({ fr: s === "opening" ? "Forfait ouverture saisonnière" : "Forfait fermeture saisonnière",
-      en: s === "opening" ? "Seasonal opening package" : "Seasonal closing package", qte: 1, tarif: v });
+  if (s === "opening") {
+    if (g.ouverture == null) return null;
+    lignes.push({ fr: "Forfait ouverture saisonnière", en: "Seasonal opening package", qte: 1, tarif: g.ouverture });
+  }
+  if (s === "closing") {
+    const j = nbJets(a);
+    if (g.fermeture == null || j == null || j > JETS_MAX) return null;
+    lignes.push({ fr: "Forfait fermeture saisonnière", en: "Seasonal closing package", qte: 1, tarif: g.fermeture });
+    if (j > 0) {
+      if (g.bouchonJet == null) return null;
+      lignes.push({ fr: "Bouchons d'hiver (par jet)", en: "Winter plugs (per jet)", qte: j, tarif: g.bouchonJet });
+    }
   }
   let deplacementSelonAdresse;
   if (s === "pressure") {
@@ -106,16 +129,16 @@ export function reservation(tarifs, a) {
   if (s === "plumbing") {
     const n = nbAppareils(a);
     const inclus = g.raccordementInclus;
-    if (g.raccordement == null || inclus == null || n == null || n > APPAREILS_MAX) return null;
-    lignes.push({ fr: `Forfait raccordement — 1re visite (jusqu'à ${inclus} appareils)`,
-      en: `Plumbing package — 1st visit (up to ${inclus} devices)`, qte: 1, tarif: g.raccordement });
+    const deux = a.plumbing_two_step === true;
+    const base = deux ? g.raccordement2Temps : g.raccordement;
+    if (base == null || inclus == null || n == null || n > APPAREILS_MAX) return null;
+    lignes.push(deux
+      ? { fr: `Forfait raccordement en 2 temps — retour sur place inclus (jusqu'à ${inclus} appareils)`,
+          en: `Two-step plumbing package — return visit included (up to ${inclus} devices)`, qte: 1, tarif: base }
+      : { fr: `Forfait raccordement (jusqu'à ${inclus} appareils)`, en: `Plumbing package (up to ${inclus} devices)`, qte: 1, tarif: base });
     if (n > inclus) {
       if (g.raccordementAppareil == null) return null;
       lignes.push({ fr: "Appareil additionnel à raccorder", en: "Additional device to connect", qte: n - inclus, tarif: g.raccordementAppareil });
-    }
-    if (a.plumbing_two_step === true) {
-      if (g.raccordementV2 == null) return null;
-      lignes.push({ fr: "Raccordement en 2 temps — retour sur place", en: "Two-step plumbing — return visit", qte: 1, tarif: g.raccordementV2 });
     }
   }
   const sousTotal = Math.round(lignes.reduce((x, l) => x + l.qte * l.tarif, 0) * 100) / 100;
