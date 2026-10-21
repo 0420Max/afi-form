@@ -30,6 +30,19 @@ export const CODES = {
 // Le montant FACTURÉ est calculé par le serveur (afi-ops-backend, lib/paiement/prepaiementFormulaire.js) ;
 // ici, seulement l'affichage, avec les mêmes règles et les mêmes codes du board.
 export const SERVICES_PREPAYES = ["opening", "closing", "pressure", "plumbing"];
+// Au-delà de ce nombre, aucun montant automatique : l'équipe confirme le prix (même limite au serveur).
+export const APPAREILS_MAX = 20;
+
+/** Nombre RÉEL d'appareils : 1 à 7 choisis directement, « 8 ou plus » → nombre exact tapé. → entier ≥ 1 | null */
+export function nbAppareils(a) {
+  if (!a) return null;
+  const v = a.plumbing_devices === "8+" ? a.plumbing_devices_exact : a.plumbing_devices;
+  const n = Number(String(v == null ? "" : v).trim());
+  if (!Number.isInteger(n) || n < 1) return null;
+  if (a.plumbing_devices === "8+" && n < 8) return null;
+  return n;
+}
+
 export const estPrepaye = (a) => !!a && a.request_type === "service" && a.client_type === "residential"
   && SERVICES_PREPAYES.includes(a.service_type);
 
@@ -91,9 +104,9 @@ export function reservation(tarifs, a) {
     deplacementSelonAdresse = { dep75: g.dep75, dep300: g.dep300 };
   }
   if (s === "plumbing") {
-    const n = Number(a.plumbing_devices);
+    const n = nbAppareils(a);
     const inclus = g.raccordementInclus;
-    if (g.raccordement == null || inclus == null || !Number.isInteger(n) || n < 1) return null;
+    if (g.raccordement == null || inclus == null || n == null || n > APPAREILS_MAX) return null;
     lignes.push({ fr: `Forfait raccordement — 1re visite (jusqu'à ${inclus} appareils)`,
       en: `Plumbing package — 1st visit (up to ${inclus} devices)`, qte: 1, tarif: g.raccordement });
     if (n > inclus) {

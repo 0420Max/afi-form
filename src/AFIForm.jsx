@@ -4,7 +4,7 @@ import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./pr
 // Serveur AFI Ops. VITE_AFI_BACKEND seulement pour les essais locaux (build sans cette
 // variable = production).
 const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
-import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation } from "./tarifs.js";
+import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 // Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
@@ -216,12 +216,17 @@ const QUESTIONS = [
     help: { fr: "Pompe, filtre, chauffe-eau, thermopompe, système au sel, soufflerie, lumière, clavier/pack… chaque appareil compte pour 1.",
       en: "Pump, filter, heater, heat pump, salt system, blower, light, keypad/pack… each device counts as 1." },
     show_if: (a) => a.service_type === "plumbing" && a.description != null,
-    options: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ value: n, label: { fr: n === 8 ? "8 ou plus" : String(n), en: n === 8 ? "8 or more" : String(n) } })) },
+    options: [1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: { fr: String(n), en: String(n) } }))
+      .concat([{ value: "8+", label: { fr: "8 ou plus", en: "8 or more" } }]) },
+  { slug: "plumbing_devices_exact", type: "text", required: true,
+    label: { fr: "🔢 Nombre exact d'appareils", en: "🔢 Exact number of devices" },
+    placeholder: { fr: "Ex. : 9", en: "E.g. 9" },
+    show_if: (a) => a.service_type === "plumbing" && a.plumbing_devices === "8+" },
   { slug: "plumbing_two_step", type: "toggle", required: true,
     label: { fr: "🔁 Le raccordement se fait-il en 2 temps (un retour sur place est nécessaire)?", en: "🔁 Is the plumbing done in two steps (a return visit is needed)?" },
     help: { fr: "Ex. : plomberie avant le remblai, puis mise en service plus tard. La 2e visite est facturée en plus.",
       en: "E.g. plumbing before backfill, then commissioning later. The second visit is billed in addition." },
-    show_if: (a) => a.service_type === "plumbing" && a.plumbing_devices != null },
+    show_if: (a) => a.service_type === "plumbing" && nbAppareils(a) != null },
   // Envoyée à part (champ « preuve_achat ») : photo ou PDF de la facture ou du reçu.
   { slug: "purchase_proof", type: "file", multiple: true, max: 3, preuve: true, required: true,
     label: { fr: "🧾 Preuve d'achat (facture ou reçu)", en: "🧾 Proof of purchase (invoice or receipt)" },
@@ -423,7 +428,17 @@ function validateAddress(value, lang) {
   return null;
 }
 
+function validateNombreAppareils(value, lang) {
+  if (value == null || String(value).trim() === "") return null;
+  const n = Number(String(value).trim());
+  if (!Number.isInteger(n) || n < 8) {
+    return lang === "fr" ? "Indiquez un nombre entier de 8 ou plus (ex. : 9)" : "Enter a whole number of 8 or more (e.g. 9)";
+  }
+  return null;
+}
+
 function getFieldError(q, value, lang) {
+  if (q.slug === "plumbing_devices_exact") return validateNombreAppareils(value, lang);
   if (q.type === "tel") return validatePhone(value, lang);
   if (q.type === "email") return validateEmail(value, lang);
   if (q.type === "address") return validateAddress(value, lang);
@@ -541,10 +556,17 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
  * Snapshot texte de ce que PricingInfo affiche (champ pricing_info_displayed,
  * loggé côté backend dans Monday). Même source que l'affichage.
  */
-function buildPricingInfoDisplayed(serviceType, tarifs, urgency) {
+function buildPricingInfoDisplayed(serviceType, tarifs, urgency, answers = {}) {
   const c = contenuTarifs(serviceType, tarifs, urgency, "fr");
   if (!c) return null;
   const parts = [];
+  // Montant exact accepté (paiement à la réservation) : ce que le client a vu dans « À payer à la réservation ».
+  const resa = reservation(tarifs, answers);
+  if (resa) {
+    const lignes = resa.lignes.map((l) => `${l.fr}${l.qte > 1 ? ` × ${l.qte}` : ""} : ${dollars(l.qte * l.tarif)}`);
+    if (resa.deplacementSelonAdresse) lignes.push(`Déplacement : ${dollars(resa.deplacementSelonAdresse.dep75)} (≤75 km) ou ${dollars(resa.deplacementSelonAdresse.dep300)} (>75 km), selon l'adresse`);
+    parts.push(`À PAYER À LA RÉSERVATION — ${lignes.join(" ; ")} — Sous-total : ${dollars(resa.sousTotal)}${resa.deplacementSelonAdresse ? " + déplacement" : ""}, taxes en sus`);
+  }
   if (c.forfait) parts.push(c.forfait);
   if (c.urgence) parts.push("TARIF D'URGENCE — " + c.urgence.lignes.join(" — "));
   parts.push(...c.lignes);
@@ -1131,16 +1153,21 @@ export default function AFIForm() {
         "model_serial","serial_number","purchase_date","install_date","installed_by","maintained_by",
         "purchase_proof","photo_required","photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
-        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_two_step"]);
+        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "serial_number","purchase_date","install_date","installed_by","maintained_by","purchase_proof",
-        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_two_step"]);
+        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step"]);
       // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
       // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas », urgence
       // triée par Félix, pièce demandée) : choisir (ou rechoisir) le type de demande
       // ou de service ne les efface plus ; le client peut toujours les changer.
       restaurerPrefill(next, prefill.answers, slug, value);
+      // Conditions de paiement ou montant changés → le consentement doit être redonné, en connaissance de cause.
+      if (slug !== "pricing_consent" && next.pricing_consent === true) {
+        const montant = (x) => JSON.stringify(reservation(tarifs, x));
+        if (estPrepaye(prev) !== estPrepaye(next) || montant(prev) !== montant(next)) delete next.pricing_consent;
+      }
 
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
@@ -1224,6 +1251,12 @@ export default function AFIForm() {
       const filesToUpload = await Promise.all(rawFiles.map(f => compressImage(f)));
       const preuvesToUpload = await Promise.all(preuves.map(f => compressImage(f)));
 
+      // Raccordement : le serveur reçoit le nombre RÉEL d'appareils (« 8 ou plus » → nombre exact).
+      if (payloadData.service_type === "plumbing") {
+        const nReel = nbAppareils(answers);
+        if (nReel != null) payloadData.plumbing_devices = nReel;
+        delete payloadData.plumbing_devices_exact;
+      }
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
@@ -1243,7 +1276,7 @@ export default function AFIForm() {
       // backend pour le log Monday du consentement tarifaire. On utilise
       // `tarifs` déjà en mémoire (pas de fetch supplémentaire).
       if (answers.pricing_consent === true) {
-        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs, answers.urgency);
+        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs, answers.urgency, answers);
         if (displayed) payloadData.pricing_info_displayed = displayed;
       }
 
