@@ -20,8 +20,31 @@ export const CODES = {
   ouverture: "SVC_OUVERTURE",
   fermeture: "SVC_FERMETURE",
   raccordement: "SVC_RACCORDEMENT",
+  raccordementV2: "SVC_RACCORDEMENT_V2",
+  raccordementAppareil: "SVC_RACCORDEMENT_APPAREIL",
+  raccordementInclus: "SVC_RACCORDEMENT_INCLUS", // NOMBRE d'appareils inclus (pas un montant)
   testPression: "SVC_TEST_PRESSION",
 };
+
+// Paiement à la réservation (décision Max, 21 oct. 2026) : ces services se paient à l'envoi du formulaire.
+// Le montant FACTURÉ est calculé par le serveur (afi-ops-backend, lib/paiement/prepaiementFormulaire.js) ;
+// ici, seulement l'affichage, avec les mêmes règles et les mêmes codes du board.
+export const SERVICES_PREPAYES = ["opening", "closing", "pressure", "plumbing"];
+// Au-delà de ce nombre, aucun montant automatique : l'équipe confirme le prix (même limite au serveur).
+export const APPAREILS_MAX = 20;
+
+/** Nombre RÉEL d'appareils : 1 à 7 choisis directement, « 8 ou plus » → nombre exact tapé. → entier ≥ 1 | null */
+export function nbAppareils(a) {
+  if (!a) return null;
+  const v = a.plumbing_devices === "8+" ? a.plumbing_devices_exact : a.plumbing_devices;
+  const n = Number(String(v == null ? "" : v).trim());
+  if (!Number.isInteger(n) || n < 1) return null;
+  if (a.plumbing_devices === "8+" && n < 8) return null;
+  return n;
+}
+
+export const estPrepaye = (a) => !!a && a.request_type === "service" && a.client_type === "residential"
+  && SERVICES_PREPAYES.includes(a.service_type);
 
 // Montants de LIVRAISON d'un achat (question « Mode de livraison ») : absents du
 // board Tarifs AFI, libellés historiques du formulaire conservés tels quels.
@@ -50,8 +73,53 @@ export function grille(tarifs, urgency) {
     ouverture: m(CODES.ouverture),
     fermeture: m(CODES.fermeture),
     raccordement: m(CODES.raccordement),
+    raccordementV2: m(CODES.raccordementV2),
+    raccordementAppareil: m(CODES.raccordementAppareil),
+    raccordementInclus: m(CODES.raccordementInclus),
     testPression: m(CODES.testPression),
   };
+}
+
+/**
+ * Montant payable à la réservation (avant taxes), pour l'affichage.
+ * → { lignes: [{ fr, en, qte, tarif }], sousTotal, deplacementSelonAdresse? } | null (montant incomplet : jamais inventé)
+ * Test de pression : le déplacement dépend de l'adresse (calculé au serveur) → sous-total SANS déplacement,
+ * deplacementSelonAdresse = { dep75, dep300 } à afficher.
+ */
+export function reservation(tarifs, a) {
+  if (!estPrepaye(a)) return null;
+  const g = grille(tarifs, a.urgency);
+  const s = a.service_type;
+  const lignes = [];
+  if (s === "opening" || s === "closing") {
+    const v = s === "opening" ? g.ouverture : g.fermeture;
+    if (v == null) return null;
+    lignes.push({ fr: s === "opening" ? "Forfait ouverture saisonnière" : "Forfait fermeture saisonnière",
+      en: s === "opening" ? "Seasonal opening package" : "Seasonal closing package", qte: 1, tarif: v });
+  }
+  let deplacementSelonAdresse;
+  if (s === "pressure") {
+    if (g.testPression == null || g.dep75 == null || g.dep300 == null) return null;
+    lignes.push({ fr: "Forfait test de pression / détection de fuite", en: "Pressure test / leak detection package", qte: 1, tarif: g.testPression });
+    deplacementSelonAdresse = { dep75: g.dep75, dep300: g.dep300 };
+  }
+  if (s === "plumbing") {
+    const n = nbAppareils(a);
+    const inclus = g.raccordementInclus;
+    if (g.raccordement == null || inclus == null || n == null || n > APPAREILS_MAX) return null;
+    lignes.push({ fr: `Forfait raccordement — 1re visite (jusqu'à ${inclus} appareils)`,
+      en: `Plumbing package — 1st visit (up to ${inclus} devices)`, qte: 1, tarif: g.raccordement });
+    if (n > inclus) {
+      if (g.raccordementAppareil == null) return null;
+      lignes.push({ fr: "Appareil additionnel à raccorder", en: "Additional device to connect", qte: n - inclus, tarif: g.raccordementAppareil });
+    }
+    if (a.plumbing_two_step === true) {
+      if (g.raccordementV2 == null) return null;
+      lignes.push({ fr: "Raccordement en 2 temps — retour sur place", en: "Two-step plumbing — return visit", qte: 1, tarif: g.raccordementV2 });
+    }
+  }
+  const sousTotal = Math.round(lignes.reduce((x, l) => x + l.qte * l.tarif, 0) * 100) / 100;
+  return { lignes, sousTotal, ...(deplacementSelonAdresse ? { deplacementSelonAdresse } : {}) };
 }
 
 // Montants selon la langue, toujours 2 décimales : « 1 250,50 $ » (fr-CA) ou « $1,250.50 » (en-CA).

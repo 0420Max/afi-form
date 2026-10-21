@@ -4,7 +4,7 @@ import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./pr
 // Serveur AFI Ops. VITE_AFI_BACKEND seulement pour les essais locaux (build sans cette
 // variable = production).
 const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
-import { grille, dollars, fmt, LIVRAISON } from "./tarifs.js";
+import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 // Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
@@ -210,6 +210,23 @@ const QUESTIONS = [
       if (a.service_type === "incomplete") return a.missing_equipment?.length > 0;
       return a.pool_type != null && ["break","gelcoat","pressure","plumbing"].includes(a.service_type);
     } },
+  // Raccordement : prix selon le nombre d'appareils (2 inclus au forfait) + 2e visite si en 2 temps (payés à la réservation).
+  { slug: "plumbing_devices", type: "radio", required: true,
+    label: { fr: "🔌 Combien d'appareils faut-il raccorder?", en: "🔌 How many devices need to be connected?" },
+    help: { fr: "Pompe, filtre, chauffe-eau, thermopompe, système au sel, soufflerie, lumière, clavier/pack… chaque appareil compte pour 1.",
+      en: "Pump, filter, heater, heat pump, salt system, blower, light, keypad/pack… each device counts as 1." },
+    show_if: (a) => a.service_type === "plumbing" && a.description != null,
+    options: [1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: { fr: String(n), en: String(n) } }))
+      .concat([{ value: "8+", label: { fr: "8 ou plus", en: "8 or more" } }]) },
+  { slug: "plumbing_devices_exact", type: "text", required: true,
+    label: { fr: "🔢 Nombre exact d'appareils", en: "🔢 Exact number of devices" },
+    placeholder: { fr: "Ex. : 9", en: "E.g. 9" },
+    show_if: (a) => a.service_type === "plumbing" && a.plumbing_devices === "8+" },
+  { slug: "plumbing_two_step", type: "toggle", required: true,
+    label: { fr: "🔁 Le raccordement se fait-il en 2 temps (un retour sur place est nécessaire)?", en: "🔁 Is the plumbing done in two steps (a return visit is needed)?" },
+    help: { fr: "Ex. : plomberie avant le remblai, puis mise en service plus tard. La 2e visite est facturée en plus.",
+      en: "E.g. plumbing before backfill, then commissioning later. The second visit is billed in addition." },
+    show_if: (a) => a.service_type === "plumbing" && nbAppareils(a) != null },
   // Envoyée à part (champ « preuve_achat ») : photo ou PDF de la facture ou du reçu.
   { slug: "purchase_proof", type: "file", multiple: true, max: 3, preuve: true, required: true,
     label: { fr: "🧾 Preuve d'achat (facture ou reçu)", en: "🧾 Proof of purchase (invoice or receipt)" },
@@ -226,7 +243,8 @@ const QUESTIONS = [
     label: { fr: "🚦 Niveau d'urgence", en: "🚦 Urgency Level" },
     show_if: (a) => {
       if (a.service_type === "warranty") return a.photo_required != null;
-      return ["break","gelcoat","pressure","plumbing"].includes(a.service_type) && a.description != null;
+      if (a.service_type === "plumbing") return a.plumbing_two_step != null;
+      return ["break","gelcoat","pressure"].includes(a.service_type) && a.description != null;
     },
     options: [
       { value: "urgent",    label: { fr: "🔴 Urgent",   en: "🔴 Urgent" } },
@@ -362,6 +380,8 @@ const QUESTIONS = [
     show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.service_type != null },
   { slug: "pricing_consent", type: "checkbox_single", required: true,
     label: { fr: "💰 Je comprends que les déplacements et interventions sont facturables selon la grille tarifaire AFI", en: "💰 I understand that travel and service calls are billable according to AFI's rate schedule" },
+    label_prepaye: { fr: "💳 Je comprends que ce service est payable à la réservation : après l'envoi, je serai dirigé vers la page de paiement sécurisée. Ma demande sera planifiée dès le paiement reçu.",
+      en: "💳 I understand this service is payable upon booking: after submitting, I will be taken to the secure payment page. My request will be scheduled once payment is received." },
     show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.gdpr_consent === true },
 ];
 
@@ -408,7 +428,17 @@ function validateAddress(value, lang) {
   return null;
 }
 
+function validateNombreAppareils(value, lang) {
+  if (value == null || String(value).trim() === "") return null;
+  const n = Number(String(value).trim());
+  if (!Number.isInteger(n) || n < 8) {
+    return lang === "fr" ? "Indiquez un nombre entier de 8 ou plus (ex. : 9)" : "Enter a whole number of 8 or more (e.g. 9)";
+  }
+  return null;
+}
+
 function getFieldError(q, value, lang) {
+  if (q.slug === "plumbing_devices_exact") return validateNombreAppareils(value, lang);
   if (q.type === "tel") return validatePhone(value, lang);
   if (q.type === "email") return validateEmail(value, lang);
   if (q.type === "address") return validateAddress(value, lang);
@@ -495,11 +525,17 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
     return { forfait: fr ? `Forfait ${m} — payable à la réservation. ${taxes}` : `Package ${m} — payable upon booking. ${taxes}`, lignes: [], notes: [] };
   }
   if (serviceType === "plumbing") {
-    return { forfait: fr ? `Forfait raccordement ${d(g.raccordement)} (1re visite et visites subséquentes). ${taxes}`
-      : `Plumbing/commissioning package ${d(g.raccordement)} (first and subsequent visits). ${taxes}`, lignes: [], notes: [], urgence };
+    const inc = g.raccordementInclus;
+    const lignesR = [
+      fr ? `Forfait 1re visite : ${d(g.raccordement)} (jusqu'à ${inc != null ? inc : "—"} appareils)` : `1st visit package: ${d(g.raccordement)} (up to ${inc != null ? inc : "—"} devices)`,
+      fr ? `Appareil additionnel : ${d(g.raccordementAppareil)} chacun` : `Additional device: ${d(g.raccordementAppareil)} each`,
+      fr ? `Raccordement en 2 temps (retour sur place) : ${d(g.raccordementV2)} en plus` : `Two-step plumbing (return visit): ${d(g.raccordementV2)} extra`,
+    ];
+    return { forfait: fr ? `Raccordement — payable à la réservation. ${taxes}` : `Plumbing — payable upon booking. ${taxes}`, lignes: lignesR, notes: [], urgence };
   }
   if (serviceType === "pressure") {
-    return { forfait: fr ? `Forfait test de pression ${d(g.testPression)}. ${taxes}` : `Pressure test package ${d(g.testPression)}. ${taxes}`,
+    return { forfait: fr ? `Forfait test de pression ${d(g.testPression)} + déplacement selon votre adresse — payable à la réservation. ${taxes}`
+      : `Pressure test package ${d(g.testPression)} + travel based on your address — payable upon booking. ${taxes}`,
       lignes: g.urgent ? [] : [dep(g)], notes: [], urgence };
   }
   if (serviceType === "break" || serviceType === "gelcoat") {
@@ -520,10 +556,17 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
  * Snapshot texte de ce que PricingInfo affiche (champ pricing_info_displayed,
  * loggé côté backend dans Monday). Même source que l'affichage.
  */
-function buildPricingInfoDisplayed(serviceType, tarifs, urgency) {
+function buildPricingInfoDisplayed(serviceType, tarifs, urgency, answers = {}) {
   const c = contenuTarifs(serviceType, tarifs, urgency, "fr");
   if (!c) return null;
   const parts = [];
+  // Montant exact accepté (paiement à la réservation) : ce que le client a vu dans « À payer à la réservation ».
+  const resa = reservation(tarifs, answers);
+  if (resa) {
+    const lignes = resa.lignes.map((l) => `${l.fr}${l.qte > 1 ? ` × ${l.qte}` : ""} : ${dollars(l.qte * l.tarif)}`);
+    if (resa.deplacementSelonAdresse) lignes.push(`Déplacement : ${dollars(resa.deplacementSelonAdresse.dep75)} (≤75 km) ou ${dollars(resa.deplacementSelonAdresse.dep300)} (>75 km), selon l'adresse`);
+    parts.push(`À PAYER À LA RÉSERVATION — ${lignes.join(" ; ")} — Sous-total : ${dollars(resa.sousTotal)}${resa.deplacementSelonAdresse ? " + déplacement" : ""}, taxes en sus`);
+  }
   if (c.forfait) parts.push(c.forfait);
   if (c.urgence) parts.push("TARIF D'URGENCE — " + c.urgence.lignes.join(" — "));
   parts.push(...c.lignes);
@@ -531,7 +574,32 @@ function buildPricingInfoDisplayed(serviceType, tarifs, urgency) {
   return parts.join(" | ");
 }
 
-function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang }) {
+// Montant à payer à la réservation (avant taxes ; les taxes sont calculées sur la page de paiement).
+function ResumeReservation({ resa, lang }) {
+  const fr = lang !== "en";
+  const d = (v) => dollars(v, lang);
+  const dep = resa.deplacementSelonAdresse;
+  return (
+    <div data-reservation style={{ background: "#fff", border: `1px solid ${A}`, borderRadius: 10, padding: "12px 14px", margin: "12px 0 10px" }}>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>💳 {fr ? "À payer à la réservation" : "Due upon booking"}</div>
+      <ul style={{ margin: "0 0 6px 0", paddingLeft: 20 }}>
+        {resa.lignes.map((l) => <li key={l.fr}>{fr ? l.fr : l.en}{l.qte > 1 ? ` × ${l.qte}` : ""} : {d(l.qte * l.tarif)}</li>)}
+        {dep && <li>{fr ? `Déplacement : ${d(dep.dep75)} (≤75 km) ou ${d(dep.dep300)} (>75 km), selon votre adresse`
+          : `Travel: ${d(dep.dep75)} (≤75 km) or ${d(dep.dep300)} (>75 km), based on your address`}</li>}
+      </ul>
+      <div style={{ fontWeight: 700 }}>
+        {dep ? (fr ? `Sous-total : ${d(resa.sousTotal)} + déplacement, taxes en sus` : `Subtotal: ${d(resa.sousTotal)} + travel, taxes extra`)
+          : (fr ? `Sous-total : ${d(resa.sousTotal)}, taxes en sus` : `Subtotal: ${d(resa.sousTotal)}, taxes extra`)}
+      </div>
+      <div style={{ fontSize: 12, color: MUTED, marginTop: 6 }}>
+        {fr ? "Après l'envoi, vous serez dirigé vers la page de paiement sécurisée. Votre demande est planifiée dès le paiement reçu."
+          : "After submitting, you will be taken to the secure payment page. Your request is scheduled once payment is received."}
+      </div>
+    </div>
+  );
+}
+
+function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang, answers = {} }) {
   if (!serviceType || serviceType === "incomplete") return null;
   const fr = lang !== "en";
 
@@ -576,10 +644,7 @@ function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang }) {
 
   const c = contenuTarifs(serviceType, tarifs, urgency, lang);
   if (!c) return null;
-  const payer = serviceType === "opening" || serviceType === "closing";
-  const url = serviceType === "opening"
-    ? "https://discountpoolsupplies.ca/products/service-douverture"
-    : "https://discountpoolsupplies.ca/products/service-de-fermeture";
+  const resa = reservation(tarifs, answers);
 
   return (
     <div id="q-pricing_info" style={wrap}>
@@ -593,17 +658,9 @@ function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang }) {
         </>
       )}
       {c.forfait && <div>💰 {c.forfait}</div>}
-      {payer && (
-        <div style={{ marginTop: 12 }}>
-          <a href={url} target="_blank" rel="noopener" style={{
-            display: "inline-block", padding: "9px 14px", borderRadius: 8, background: A,
-            color: "#fff", textDecoration: "none", fontSize: 13, fontWeight: 600,
-          }}>
-            🔗 {fr ? "Payer en ligne" : "Pay online"}
-          </a>
-        </div>
-      )}
-      {(c.lignes.length > 0 || c.diag) && (
+      {resa && <ResumeReservation resa={resa} lang={lang} />}
+      {/* Résumé de réservation affiché : il contient déjà les lignes (pas de doublon). */}
+      {!resa && (c.lignes.length > 0 || c.diag) && (
         <>
           {!c.forfait && c.lignes.length > 0 && (
             <div style={{ fontWeight: 600, marginBottom: 8 }}>💰 {fr ? "Tarifs applicables :" : "Applicable rates:"}</div>
@@ -722,14 +779,14 @@ function PhotosMultiples({ q, v, lang, onChange }) {
 function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, tarifs, tarifsError }) {
   // pricing_info : bloc d'affichage pur, pas une question
   if (q.type === "pricing_info") {
-    return <PricingInfo serviceType={answers.service_type} urgency={answers.urgency} tarifs={tarifs} tarifsError={tarifsError} lang={lang} />;
+    return <PricingInfo serviceType={answers.service_type} urgency={answers.urgency} tarifs={tarifs} tarifsError={tarifsError} lang={lang} answers={answers} />;
   }
 
   const v = answers[q.slug];
   const error = fieldErrors[q.slug];
   const done = isAnswered(v) && !error;
   const garantie = answers.service_type === "warranty";
-  const libelle = (garantie && q.label_garantie) || q.label;
+  const libelle = (garantie && q.label_garantie) || (estPrepaye(answers) && q.label_prepaye) || q.label;
   const lbl = libelle[lang] || libelle.fr;
   const phSrc = (garantie && q.placeholder_garantie) || q.placeholder;
   const ph = phSrc ? (phSrc[lang] || phSrc.fr) : "";
@@ -780,7 +837,8 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
           : null}
         {idx}/{total}
       </div>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14, lineHeight: 1.4, color: TEXT }}>{lbl}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: q.help ? 6 : 14, lineHeight: 1.4, color: TEXT }}>{lbl}</div>
+      {q.help && <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.5 }}>{q.help[lang] || q.help.fr}</div>}
 
       {q.type === "radio" && (
         <div style={{ display: "grid", gridTemplateColumns: q.options.length <= 4 ? "1fr 1fr" : "1fr", gap: 7 }}>
@@ -935,6 +993,56 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   );
 }
 
+// ─── PAIEMENT À LA RÉSERVATION (après l'envoi) ────────────────────────────────
+// Lien prêt → redirection automatique vers la page de paiement Shopify (taxes calculées là-bas),
+// bouton pour y aller tout de suite. Lien non créé → le dossier existe, l'équipe envoie le lien.
+const DELAI_REDIRECTION_S = 5;
+
+function EcranPaiement({ paiement, ticketId, lang }) {
+  const fr = lang !== "en";
+  const [reste, setReste] = useState(paiement.url ? DELAI_REDIRECTION_S : null);
+  useEffect(() => {
+    if (!paiement.url) return undefined;
+    if (reste <= 0) { window.location.assign(paiement.url); return undefined; }
+    const t = setTimeout(() => setReste((r) => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [reste, paiement.url]);
+  const total = paiement.total != null ? dollars(paiement.total, lang) : null;
+  return (
+    <div style={{ fontFamily: "system-ui,sans-serif", maxWidth: 560, margin: "0 auto", padding: 24, textAlign: "center", paddingTop: 60 }}>
+      <div style={{ fontSize: 48, marginBottom: 14 }}>💳</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: TEXT, marginBottom: 10 }}>
+        {paiement.url ? (fr ? "Dernière étape : le paiement" : "Last step: payment") : (fr ? "Demande reçue!" : "Request received!")}
+      </div>
+      <div style={{ fontSize: 14, color: MUTED, lineHeight: 1.6, marginBottom: 18 }}>
+        {paiement.url
+          ? (fr ? "Votre demande est enregistrée. Elle sera planifiée dès que le paiement sera reçu."
+              : "Your request is saved. It will be scheduled as soon as payment is received.")
+          : (fr ? "Votre demande est enregistrée. Ce service est payable à la réservation : notre équipe vous enverra le lien de paiement sous peu. La demande sera planifiée dès le paiement reçu."
+              : "Your request is saved. This service is payable upon booking: our team will send you the payment link shortly. It will be scheduled once payment is received.")}
+      </div>
+      {paiement.url && (
+        <>
+          <a href={paiement.url} style={{ display: "inline-block", padding: "14px 34px", borderRadius: 10, background: A, color: "#fff",
+            textDecoration: "none", fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(14,95,138,0.3)" }}>
+            {fr ? `Payer maintenant${total ? ` — ${total}` : ""}` : `Pay now${total ? ` — ${total}` : ""}`}
+          </a>
+          {total && <div style={{ fontSize: 12, color: MUTED, marginTop: 8 }}>{fr ? "Taxes incluses" : "Taxes included"}</div>}
+          <div role="status" aria-live="polite" style={{ fontSize: 13, color: MUTED, marginTop: 14 }}>
+            {reste > 0
+              ? (fr ? `Redirection vers la page de paiement sécurisée dans ${reste} s…` : `Redirecting to the secure payment page in ${reste} s…`)
+              : (fr ? "Redirection…" : "Redirecting…")}
+          </div>
+        </>
+      )}
+      <div style={{ marginTop: 22, display: "inline-block", padding: "8px 20px", background: AL, border: `1px solid ${A}`,
+        borderRadius: 20, fontSize: 13, color: A, fontWeight: 600 }}>
+        🎫 {ticketId}
+      </div>
+    </div>
+  );
+}
+
 // ─── PREFILL (Félix + page d'assistance) ──────────────────────────────────────
 // Lu UNE fois, dans les initialiseurs useState (pas un useEffect post-mount) :
 // l'état part déjà seedé, sans re-render parasite au montage qui pourrait
@@ -965,6 +1073,8 @@ export default function AFIForm() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState("");
+  // { requis, url, total } renvoyé par /api/form/submit pour un service payable à la réservation.
+  const [paiement, setPaiement] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [tarifs, setTarifs] = useState([]);
   const [tarifsError, setTarifsError] = useState(false);
@@ -1043,16 +1153,21 @@ export default function AFIForm() {
         "model_serial","serial_number","purchase_date","install_date","installed_by","maintained_by",
         "purchase_proof","photo_required","photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
-        "part_installed","rma_resolution","return_method"]);
+        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "serial_number","purchase_date","install_date","installed_by","maintained_by","purchase_proof",
-        "photo_required","photo_optional","urgency"]);
+        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step"]);
       // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
       // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas », urgence
       // triée par Félix, pièce demandée) : choisir (ou rechoisir) le type de demande
       // ou de service ne les efface plus ; le client peut toujours les changer.
       restaurerPrefill(next, prefill.answers, slug, value);
+      // Conditions de paiement ou montant changés → le consentement doit être redonné, en connaissance de cause.
+      if (slug !== "pricing_consent" && next.pricing_consent === true) {
+        const montant = (x) => JSON.stringify(reservation(tarifs, x));
+        if (estPrepaye(prev) !== estPrepaye(next) || montant(prev) !== montant(next)) delete next.pricing_consent;
+      }
 
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
@@ -1136,6 +1251,12 @@ export default function AFIForm() {
       const filesToUpload = await Promise.all(rawFiles.map(f => compressImage(f)));
       const preuvesToUpload = await Promise.all(preuves.map(f => compressImage(f)));
 
+      // Raccordement : le serveur reçoit le nombre RÉEL d'appareils (« 8 ou plus » → nombre exact).
+      if (payloadData.service_type === "plumbing") {
+        const nReel = nbAppareils(answers);
+        if (nReel != null) payloadData.plumbing_devices = nReel;
+        delete payloadData.plumbing_devices_exact;
+      }
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
@@ -1155,7 +1276,7 @@ export default function AFIForm() {
       // backend pour le log Monday du consentement tarifaire. On utilise
       // `tarifs` déjà en mémoire (pas de fetch supplémentaire).
       if (answers.pricing_consent === true) {
-        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs, answers.urgency);
+        const displayed = buildPricingInfoDisplayed(answers.service_type, tarifs, answers.urgency, answers);
         if (displayed) payloadData.pricing_info_displayed = displayed;
       }
 
@@ -1177,6 +1298,7 @@ export default function AFIForm() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setTicketId(data.ticket_hash || hash);
+      setPaiement(data.paiement && data.paiement.requis ? data.paiement : null);
       setSubmitted(true);
     } catch (err) {
       setFieldErrors(prev => ({
@@ -1189,6 +1311,10 @@ export default function AFIForm() {
       setSubmitting(false);
     }
   };
+
+  if (submitted && paiement) return (
+    <EcranPaiement paiement={paiement} ticketId={ticketId} lang={lang} />
+  );
 
   if (submitted) return (
     <div style={{ fontFamily: "system-ui,sans-serif", maxWidth: 560, margin: "0 auto", padding: 24, textAlign: "center", paddingTop: 60 }}>
@@ -1286,7 +1412,9 @@ export default function AFIForm() {
           }}>
             {submitting
               ? (lang === "fr" ? "Envoi en cours..." : "Submitting...")
-              : (lang === "fr" ? "Envoyer ma demande →" : "Submit my request →")}
+              : estPrepaye(answers)
+                ? (lang === "fr" ? "Envoyer et payer →" : "Submit and pay →")
+                : (lang === "fr" ? "Envoyer ma demande →" : "Submit my request →")}
           </button>
           <div style={{ fontSize: 11, color: MUTED, marginTop: 10 }}>
             🔒 {lang === "fr" ? "Vos informations sont sécurisées et confidentielles" : "Your information is secure and confidential"}
