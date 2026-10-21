@@ -4,7 +4,7 @@ import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./pr
 // Serveur AFI Ops. VITE_AFI_BACKEND seulement pour les essais locaux (build sans cette
 // variable = production).
 const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
-import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils, nbJets } from "./tarifs.js";
+import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils, nbJets, APPAREILS_MAX, JETS_MAX } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 // Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
@@ -239,7 +239,7 @@ const QUESTIONS = [
     label: { fr: "🔁 Le raccordement se fait-il en 2 temps (un retour sur place est nécessaire)?", en: "🔁 Is the plumbing done in two steps (a return visit is needed)?" },
     help: { fr: "Ex. : plomberie avant le remblai, puis mise en service plus tard. Le forfait en 2 temps inclut le retour sur place.",
       en: "E.g. plumbing before backfill, then commissioning later. The two-step package includes the return visit." },
-    show_if: (a) => a.service_type === "plumbing" && nbAppareils(a) != null },
+    show_if: (a) => a.service_type === "plumbing" && nbAppareils(a) != null && nbAppareils(a) <= APPAREILS_MAX },
   // Envoyée à part (champ « preuve_achat ») : photo ou PDF de la facture ou du reçu.
   { slug: "purchase_proof", type: "file", multiple: true, max: 3, preuve: true, required: true,
     label: { fr: "🧾 Preuve d'achat (facture ou reçu)", en: "🧾 Proof of purchase (invoice or receipt)" },
@@ -345,7 +345,7 @@ const QUESTIONS = [
       if (a.request_type !== "service") return false;
       if (a.service_type === "warranty") return a.urgency != null;
       if (a.service_type === "incomplete") return !!a.description;
-      if (a.service_type === "closing") return nbJets(a) != null;
+      if (a.service_type === "closing") return nbJets(a) != null && nbJets(a) <= JETS_MAX;
       if (a.service_type === "opening") return a.pool_type != null;
       return a.urgency != null;
     } },
@@ -442,12 +442,20 @@ function validateAddress(value, lang) {
   return null;
 }
 
+// Au-delà de la grille (même limite au serveur) : pas de montant automatique → le client nous contacte.
+function depasse(max, quoi, lang) {
+  return lang === "fr"
+    ? `Au-delà de ${max} ${quoi}, le prix est établi sur mesure : appelez-nous au 1-800-708-7789 ou au (418) 871-0658 poste 2.`
+    : `Above ${max} ${quoi}, pricing is quoted individually: call us at 1-800-708-7789 or (418) 871-0658 ext. 2.`;
+}
+
 function validateNombreAppareils(value, lang) {
   if (value == null || String(value).trim() === "") return null;
   const n = Number(String(value).trim());
   if (!Number.isInteger(n) || n < 8) {
     return lang === "fr" ? "Indiquez un nombre entier de 8 ou plus (ex. : 9)" : "Enter a whole number of 8 or more (e.g. 9)";
   }
+  if (n > APPAREILS_MAX) return depasse(APPAREILS_MAX, lang === "fr" ? "appareils" : "devices", lang);
   return null;
 }
 
@@ -457,6 +465,7 @@ function getFieldError(q, value, lang) {
     if (value == null || String(value).trim() === "") return null;
     const n = Number(String(value).trim());
     if (!Number.isInteger(n) || n < 0) return lang === "fr" ? "Indiquez un nombre entier de jets (ex. : 16)" : "Enter a whole number of jets (e.g. 16)";
+    if (n > JETS_MAX) return depasse(JETS_MAX, "jets", lang);
   }
   if (q.type === "tel") return validatePhone(value, lang);
   if (q.type === "email") return validateEmail(value, lang);
