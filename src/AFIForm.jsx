@@ -4,7 +4,7 @@ import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./pr
 // Serveur AFI Ops. VITE_AFI_BACKEND seulement pour les essais locaux (build sans cette
 // variable = production).
 const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
-import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils } from "./tarifs.js";
+import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils, nbJets, APPAREILS_MAX, JETS_MAX } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 // Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
@@ -210,6 +210,19 @@ const QUESTIONS = [
       if (a.service_type === "incomplete") return a.missing_equipment?.length > 0;
       return a.pool_type != null && ["break","gelcoat","pressure","plumbing"].includes(a.service_type);
     } },
+  // Fermeture : bouchons d'hiver fournis selon le nombre de jets (mêmes choix que le produit du site).
+  { slug: "closing_jets", type: "radio", required: true,
+    label: { fr: "🔩 Combien de jets a votre bassin?", en: "🔩 How many jets does your pool or spa have?" },
+    help: { fr: "Choisissez 0 si vous avez déjà vos bouchons d'hiver. Sinon, nous les fournissons (facturés par jet).",
+      en: "Choose 0 if you already have your winter plugs. Otherwise we supply them (billed per jet)." },
+    show_if: (a) => a.service_type === "closing" && a.pool_type != null,
+    options: [0, 12, 20, 30, 48].map((n) => ({ value: n, label: {
+        fr: n === 0 ? "0 — j'ai déjà mes bouchons" : `${n} jets`, en: n === 0 ? "0 — I already have my plugs" : `${n} jets` } }))
+      .concat([{ value: "autre", label: { fr: "Autre nombre", en: "Other number" } }]) },
+  { slug: "closing_jets_exact", type: "text", required: true,
+    label: { fr: "🔢 Nombre exact de jets", en: "🔢 Exact number of jets" },
+    placeholder: { fr: "Ex. : 16", en: "E.g. 16" },
+    show_if: (a) => a.service_type === "closing" && a.closing_jets === "autre" },
   // Raccordement : prix selon le nombre d'appareils (2 inclus au forfait) + 2e visite si en 2 temps (payés à la réservation).
   { slug: "plumbing_devices", type: "radio", required: true,
     label: { fr: "🔌 Combien d'appareils faut-il raccorder?", en: "🔌 How many devices need to be connected?" },
@@ -224,9 +237,9 @@ const QUESTIONS = [
     show_if: (a) => a.service_type === "plumbing" && a.plumbing_devices === "8+" },
   { slug: "plumbing_two_step", type: "toggle", required: true,
     label: { fr: "🔁 Le raccordement se fait-il en 2 temps (un retour sur place est nécessaire)?", en: "🔁 Is the plumbing done in two steps (a return visit is needed)?" },
-    help: { fr: "Ex. : plomberie avant le remblai, puis mise en service plus tard. La 2e visite est facturée en plus.",
-      en: "E.g. plumbing before backfill, then commissioning later. The second visit is billed in addition." },
-    show_if: (a) => a.service_type === "plumbing" && nbAppareils(a) != null },
+    help: { fr: "Ex. : plomberie avant le remblai, puis mise en service plus tard. Le forfait en 2 temps inclut le retour sur place.",
+      en: "E.g. plumbing before backfill, then commissioning later. The two-step package includes the return visit." },
+    show_if: (a) => a.service_type === "plumbing" && nbAppareils(a) != null && nbAppareils(a) <= APPAREILS_MAX },
   // Envoyée à part (champ « preuve_achat ») : photo ou PDF de la facture ou du reçu.
   { slug: "purchase_proof", type: "file", multiple: true, max: 3, preuve: true, required: true,
     label: { fr: "🧾 Preuve d'achat (facture ou reçu)", en: "🧾 Proof of purchase (invoice or receipt)" },
@@ -332,7 +345,8 @@ const QUESTIONS = [
       if (a.request_type !== "service") return false;
       if (a.service_type === "warranty") return a.urgency != null;
       if (a.service_type === "incomplete") return !!a.description;
-      if (["opening","closing"].includes(a.service_type)) return a.pool_type != null;
+      if (a.service_type === "closing") return nbJets(a) != null && nbJets(a) <= JETS_MAX;
+      if (a.service_type === "opening") return a.pool_type != null;
       return a.urgency != null;
     } },
   { slug: "full_name", type: "text", required: true,
@@ -428,17 +442,31 @@ function validateAddress(value, lang) {
   return null;
 }
 
+// Au-delà de la grille (même limite au serveur) : pas de montant automatique → le client nous contacte.
+function depasse(max, quoi, lang) {
+  return lang === "fr"
+    ? `Au-delà de ${max} ${quoi}, le prix est établi sur mesure : appelez-nous au 1-800-708-7789 ou au (418) 871-0658 poste 2.`
+    : `Above ${max} ${quoi}, pricing is quoted individually: call us at 1-800-708-7789 or (418) 871-0658 ext. 2.`;
+}
+
 function validateNombreAppareils(value, lang) {
   if (value == null || String(value).trim() === "") return null;
   const n = Number(String(value).trim());
   if (!Number.isInteger(n) || n < 8) {
     return lang === "fr" ? "Indiquez un nombre entier de 8 ou plus (ex. : 9)" : "Enter a whole number of 8 or more (e.g. 9)";
   }
+  if (n > APPAREILS_MAX) return depasse(APPAREILS_MAX, lang === "fr" ? "appareils" : "devices", lang);
   return null;
 }
 
 function getFieldError(q, value, lang) {
   if (q.slug === "plumbing_devices_exact") return validateNombreAppareils(value, lang);
+  if (q.slug === "closing_jets_exact") {
+    if (value == null || String(value).trim() === "") return null;
+    const n = Number(String(value).trim());
+    if (!Number.isInteger(n) || n < 0) return lang === "fr" ? "Indiquez un nombre entier de jets (ex. : 16)" : "Enter a whole number of jets (e.g. 16)";
+    if (n > JETS_MAX) return depasse(JETS_MAX, "jets", lang);
+  }
   if (q.type === "tel") return validatePhone(value, lang);
   if (q.type === "email") return validateEmail(value, lang);
   if (q.type === "address") return validateAddress(value, lang);
@@ -522,14 +550,16 @@ function contenuTarifs(serviceType, tarifs, urgency, lang) {
 
   if (serviceType === "opening" || serviceType === "closing") {
     const m = d(serviceType === "opening" ? g.ouverture : g.fermeture);
-    return { forfait: fr ? `Forfait ${m} — payable à la réservation. ${taxes}` : `Package ${m} — payable upon booking. ${taxes}`, lignes: [], notes: [] };
+    const bouchons = serviceType === "closing"
+      ? (fr ? ` + bouchons d'hiver ${d(g.bouchonJet)} par jet (0 $ si vous avez déjà vos bouchons)` : ` + winter plugs ${d(g.bouchonJet)} per jet ($0 if you already have your plugs)`) : "";
+    return { forfait: fr ? `Forfait ${m}${bouchons} — payable à la réservation. ${taxes}` : `Package ${m}${bouchons} — payable upon booking. ${taxes}`, lignes: [], notes: [] };
   }
   if (serviceType === "plumbing") {
     const inc = g.raccordementInclus;
     const lignesR = [
-      fr ? `Forfait 1re visite : ${d(g.raccordement)} (jusqu'à ${inc != null ? inc : "—"} appareils)` : `1st visit package: ${d(g.raccordement)} (up to ${inc != null ? inc : "—"} devices)`,
+      fr ? `En 1 temps : ${d(g.raccordement)} (jusqu'à ${inc != null ? inc : "—"} appareils)` : `One step: ${d(g.raccordement)} (up to ${inc != null ? inc : "—"} devices)`,
+      fr ? `En 2 temps, retour sur place inclus : ${d(g.raccordement2Temps)} (jusqu'à ${inc != null ? inc : "—"} appareils)` : `Two steps, return visit included: ${d(g.raccordement2Temps)} (up to ${inc != null ? inc : "—"} devices)`,
       fr ? `Appareil additionnel : ${d(g.raccordementAppareil)} chacun` : `Additional device: ${d(g.raccordementAppareil)} each`,
-      fr ? `Raccordement en 2 temps (retour sur place) : ${d(g.raccordementV2)} en plus` : `Two-step plumbing (return visit): ${d(g.raccordementV2)} extra`,
     ];
     return { forfait: fr ? `Raccordement — payable à la réservation. ${taxes}` : `Plumbing — payable upon booking. ${taxes}`, lignes: lignesR, notes: [], urgence };
   }
@@ -1153,10 +1183,10 @@ export default function AFIForm() {
         "model_serial","serial_number","purchase_date","install_date","installed_by","maintained_by",
         "purchase_proof","photo_required","photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
-        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step"]);
+        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "serial_number","purchase_date","install_date","installed_by","maintained_by","purchase_proof",
-        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step"]);
+        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact"]);
       // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
       // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas », urgence
@@ -1256,6 +1286,11 @@ export default function AFIForm() {
         const nReel = nbAppareils(answers);
         if (nReel != null) payloadData.plumbing_devices = nReel;
         delete payloadData.plumbing_devices_exact;
+      }
+      if (payloadData.service_type === "closing") {
+        const jReel = nbJets(answers);
+        if (jReel != null) payloadData.closing_jets = jReel;
+        delete payloadData.closing_jets_exact;
       }
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
