@@ -1023,6 +1023,45 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   );
 }
 
+// ─── ATTENTE PENDANT L'ENVOI ──────────────────────────────────────────────────
+// L'envoi peut prendre 10 à 20 s (photos, numéro de dossier AFI-####, lien de paiement) : sans message, le
+// client croit que la page est figée, clique de nouveau ou ferme l'onglet. Étapes selon le temps écoulé.
+function etapesEnvoi(prepaye, fr) {
+  return [
+    { des: 0, texte: fr ? "Envoi de votre demande…" : "Sending your request…" },
+    { des: 3, texte: fr ? "Création de votre dossier…" : "Creating your file…" },
+    ...(prepaye ? [{ des: 7, texte: fr ? "Préparation de votre paiement sécurisé…" : "Preparing your secure payment…" }] : []),
+    { des: prepaye ? 13 : 10, texte: fr ? "Encore quelques secondes…" : "A few more seconds…" },
+  ];
+}
+
+function EtatEnvoi({ prepaye, lang }) {
+  const fr = lang !== "en";
+  const [secondes, setSecondes] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSecondes((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const etapes = etapesEnvoi(prepaye, fr);
+  const courante = etapes.filter((e) => secondes >= e.des).pop();
+  return (
+    <div role="status" aria-live="polite" data-etat-envoi style={{ marginTop: 16, padding: "14px 16px", borderRadius: 10,
+      background: AL, border: `1px solid ${A}`, textAlign: "left", fontSize: 14, color: TEXT, lineHeight: 1.5 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700 }}>
+        <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: "50%", border: `3px solid ${BORDER}`,
+          borderTopColor: A, display: "inline-block", animation: "afi-tourne 0.9s linear infinite", flexShrink: 0 }} />
+        {courante.texte}
+      </div>
+      <div style={{ marginTop: 6, fontSize: 13, color: MUTED }}>
+        {fr
+          ? `Cette étape peut prendre jusqu'à 20 secondes${prepaye ? ", puis vous serez dirigé vers la page de paiement" : ""}. Merci de ne pas fermer la page ni cliquer de nouveau.`
+          : `This can take up to 20 seconds${prepaye ? ", then you will be taken to the payment page" : ""}. Please do not close the page or click again.`}
+      </div>
+      <style>{"@keyframes afi-tourne { to { transform: rotate(360deg); } }"}</style>
+    </div>
+  );
+}
+
 // ─── PAIEMENT À LA RÉSERVATION (après l'envoi) ────────────────────────────────
 // Lien prêt → redirection automatique vers la page de paiement Shopify (taxes calculées là-bas),
 // bouton pour y aller tout de suite. Lien non créé → le dossier existe, l'équipe envoie le lien.
@@ -1061,7 +1100,12 @@ function EcranPaiement({ paiement, ticketId, lang }) {
           <div role="status" aria-live="polite" style={{ fontSize: 13, color: MUTED, marginTop: 14 }}>
             {reste > 0
               ? (fr ? `Redirection vers la page de paiement sécurisée dans ${reste} s…` : `Redirecting to the secure payment page in ${reste} s…`)
-              : (fr ? "Redirection…" : "Redirecting…")}
+              : (fr ? "Ouverture de la page de paiement sécurisée… (quelques secondes)" : "Opening the secure payment page… (a few seconds)")}
+          </div>
+          <div style={{ fontSize: 12, color: MUTED, marginTop: 6, lineHeight: 1.5 }}>
+            {fr
+              ? "La page de paiement peut prendre quelques secondes à s'afficher. Ne fermez pas cette fenêtre. Un lien de paiement vous est aussi envoyé par courriel."
+              : "The payment page may take a few seconds to load. Do not close this window. A payment link is also sent to you by email."}
           </div>
         </>
       )}
@@ -1451,9 +1495,13 @@ export default function AFIForm() {
                 ? (lang === "fr" ? "Envoyer et payer →" : "Submit and pay →")
                 : (lang === "fr" ? "Envoyer ma demande →" : "Submit my request →")}
           </button>
-          <div style={{ fontSize: 11, color: MUTED, marginTop: 10 }}>
-            🔒 {lang === "fr" ? "Vos informations sont sécurisées et confidentielles" : "Your information is secure and confidential"}
-          </div>
+          {submitting
+            ? <EtatEnvoi prepaye={estPrepaye(answers)} lang={lang} />
+            : (
+              <div style={{ fontSize: 11, color: MUTED, marginTop: 10 }}>
+                🔒 {lang === "fr" ? "Vos informations sont sécurisées et confidentielles" : "Your information is secure and confidential"}
+              </div>
+            )}
         </div>
       )}
     </div>
