@@ -1,7 +1,7 @@
 // Tests de la grille tarifaire (aucun réseau) : node scripts/test-tarifs.mjs
 // Données = copie de GET /api/tarifs/public (board Tarifs AFI) le 25 sept. 2026.
 import assert from "node:assert/strict";
-import { grille, dollars, fmt, reservation, estPrepaye, nbAppareils } from "../src/tarifs.js";
+import { grille, dollars, fmt, reservation, estPrepaye, nbAppareils, exemptionChoisie, payeALEnvoi, RAISONS_EXEMPTION } from "../src/tarifs.js";
 
 const BOARD = [
   { code: "DEP_300", montant: 300 }, { code: "DEP_75", montant: 150 }, { code: "DEP_URG_EXTRA", montant: 50 },
@@ -85,6 +85,19 @@ t("« 8 ou plus » : le nombre EXACT est facturé (revue Codex P1)", () => {
   assert.equal(r({ plumbing_devices: "8+" }), null, "nombre exact pas encore tapé");
   assert.equal(nbAppareils({ plumbing_devices: "8+", plumbing_devices_exact: "5" }), null, "moins de 8 refusé");
   assert.equal(r({ plumbing_devices: "8+", plumbing_devices_exact: "21" }), null, "au-delà de 20 : prix confirmé par l'équipe");
+});
+
+t("exemption « déjà payé ou inclus » : aucun paiement à l'envoi, seulement pour un service prépayé", () => {
+  const r = A({ service_type: "plumbing", plumbing_devices: 4 });
+  assert.equal(payeALEnvoi(r), true, "pas encore choisi : paie");
+  assert.equal(payeALEnvoi({ ...r, payment_choice: "pay_now" }), true);
+  assert.equal(exemptionChoisie({ ...r, payment_choice: "already_paid" }), true);
+  assert.equal(payeALEnvoi({ ...r, payment_choice: "already_paid" }), false);
+  assert.equal(exemptionChoisie({ ...r, service_type: "break", payment_choice: "already_paid" }), false, "service non prépayé");
+  assert.equal(exemptionChoisie({ ...r, client_type: "employee", payment_choice: "already_paid" }), false);
+  // Le montant normal reste affiché (même calcul) : l'équipe le facture si l'exemption est refusée.
+  assert.deepEqual(reservation(RESA, { ...r, payment_choice: "already_paid" }), reservation(RESA, r));
+  assert.deepEqual(RAISONS_EXEMPTION, ["retour_service", "inclus_achat", "entente_afi", "autre"], "mêmes codes qu'au serveur");
 });
 
 console.log(`${n} tests réussis`);

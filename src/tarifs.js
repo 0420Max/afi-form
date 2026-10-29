@@ -60,6 +60,15 @@ export function nbJets(a) {
 export const estPrepaye = (a) => !!a && a.request_type === "service" && a.client_type === "residential"
   && SERVICES_PREPAYES.includes(a.service_type);
 
+// Exemption (décision Max, 29 oct. 2026) : le client indique que le service est « déjà payé ou inclus ».
+// Aucun paiement à l'envoi ; le dossier est vérifié par l'équipe avant d'être planifié (au serveur :
+// afi-ops-backend, lib/paiement/prepaiementFormulaire.js#exemptionDemandee — mêmes codes de raison).
+export const RAISONS_EXEMPTION = ["retour_service", "inclus_achat", "entente_afi", "autre"];
+export const EXEMPTION_DETAIL_MAX = 300;
+export const exemptionChoisie = (a) => estPrepaye(a) && a.payment_choice === "already_paid";
+/** Paiement à faire tout de suite à l'envoi : service prépayé SANS exemption demandée. */
+export const payeALEnvoi = (a) => estPrepaye(a) && !exemptionChoisie(a);
+
 // Montants de LIVRAISON d'un achat (question « Mode de livraison ») : absents du
 // board Tarifs AFI, libellés historiques du formulaire conservés tels quels.
 // À confirmer par Max. ⚠️ Écart : le board a KM_AFI_RAPIDE = 2,10 $/km, le

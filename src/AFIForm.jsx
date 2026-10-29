@@ -4,7 +4,7 @@ import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./pr
 // Serveur AFI Ops. VITE_AFI_BACKEND seulement pour les essais locaux (build sans cette
 // variable = production).
 const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
-import { grille, dollars, fmt, LIVRAISON, estPrepaye, reservation, nbAppareils, nbJets, APPAREILS_MAX, JETS_MAX } from "./tarifs.js";
+import { grille, dollars, fmt, LIVRAISON, estPrepaye, exemptionChoisie, payeALEnvoi, EXEMPTION_DETAIL_MAX, reservation, nbAppareils, nbJets, APPAREILS_MAX, JETS_MAX } from "./tarifs.js";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 // Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
@@ -392,11 +392,40 @@ const QUESTIONS = [
   { slug: "pricing_info", type: "pricing_info", required: false,
     label: { fr: "💡 Tarifs applicables AFI", en: "💡 Applicable AFI rates" },
     show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.service_type != null },
+  // Exemption (Max, 29 oct. 2026) : « déjà payé ou inclus » → aucun paiement à l'envoi, dossier vérifié par
+  // l'équipe avant d'être planifié. Codes de raison = RAISONS_EXEMPTION (src/tarifs.js) = serveur.
+  { slug: "payment_choice", type: "radio", required: true, uneColonne: true,
+    label: { fr: "💳 Paiement de ce service", en: "💳 Payment for this service" },
+    show_if: (a) => estPrepaye(a) && a.gdpr_consent === true,
+    options: [
+      { value: "pay_now", label: { fr: "💳 Je paie maintenant (page de paiement sécurisée)", en: "💳 I'll pay now (secure payment page)" } },
+      { value: "already_paid", label: { fr: "🧾 Ce service est déjà payé ou inclus", en: "🧾 This service is already paid or included" } },
+    ] },
+  { slug: "exemption_reason", type: "radio", required: true, uneColonne: true,
+    label: { fr: "🧾 Pourquoi ce service est-il déjà payé ou inclus?", en: "🧾 Why is this service already paid or included?" },
+    help: { fr: "Notre équipe le vérifie avant de planifier votre demande. Si un paiement est requis, vous recevrez le lien de paiement.",
+      en: "Our team will verify it before scheduling your request. If payment is required, you will receive the payment link." },
+    show_if: (a) => exemptionChoisie(a),
+    options: [
+      { value: "retour_service", label: { fr: "🔁 Retour pour terminer un service déjà payé (ex. 2e visite d'un raccordement en 2 temps)",
+        en: "🔁 Return visit to finish a service already paid (e.g. 2nd visit of a two-step plumbing job)" } },
+      { value: "inclus_achat", label: { fr: "🛒 Inclus à l'achat de ma piscine ou de mon spa", en: "🛒 Included with the purchase of my pool or spa" } },
+      { value: "entente_afi", label: { fr: "🤝 Entente avec un membre de l'équipe AFI", en: "🤝 Agreement with a member of the AFI team" } },
+      { value: "autre", label: { fr: "✏️ Autre raison", en: "✏️ Other reason" } },
+    ] },
+  { slug: "exemption_detail", type: "text", required: (a) => a.exemption_reason === "autre", max_length: EXEMPTION_DETAIL_MAX,
+    label: { fr: "🧾 Précisions : numéro de facture ou de commande, ou qui vous l'a confirmé", en: "🧾 Details: invoice or order number, or who confirmed it" },
+    placeholder: { fr: "Ex. : facture AFI 12345, 1re visite faite le 15 octobre", en: "E.g. AFI invoice 12345, first visit done October 15" },
+    show_if: (a) => exemptionChoisie(a) && a.exemption_reason != null },
   { slug: "pricing_consent", type: "checkbox_single", required: true,
     label: { fr: "💰 Je comprends que les déplacements et interventions sont facturables selon la grille tarifaire AFI", en: "💰 I understand that travel and service calls are billable according to AFI's rate schedule" },
     label_prepaye: { fr: "💳 Je comprends que ce service est payable à la réservation : après l'envoi, je serai dirigé vers la page de paiement sécurisée. Ma demande sera planifiée dès le paiement reçu.",
       en: "💳 I understand this service is payable upon booking: after submitting, I will be taken to the secure payment page. My request will be scheduled once payment is received." },
-    show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.gdpr_consent === true },
+    label_exemption: { fr: "🧾 Je comprends que ma demande sera vérifiée par l'équipe AFI avant d'être planifiée. Si ce service n'est pas déjà payé ou inclus, je recevrai le lien de paiement et ma demande sera planifiée dès le paiement reçu.",
+      en: "🧾 I understand my request will be verified by the AFI team before it is scheduled. If this service is not already paid or included, I will receive the payment link and my request will be scheduled once payment is received." },
+    // Service prépayé : après le choix du paiement (et la raison, si « déjà payé ou inclus »).
+    show_if: (a) => a.client_type === "residential" && a.request_type === "service" && a.gdpr_consent === true
+      && (!estPrepaye(a) || (a.payment_choice != null && (!exemptionChoisie(a) || a.exemption_reason != null))) },
 ];
 
 // ─── VALIDATION LOGIC ────────────────────────────────────────────────────────
@@ -595,7 +624,10 @@ function buildPricingInfoDisplayed(serviceType, tarifs, urgency, answers = {}) {
   if (resa) {
     const lignes = resa.lignes.map((l) => `${l.fr}${l.qte > 1 ? ` × ${l.qte}` : ""} : ${dollars(l.qte * l.tarif)}`);
     if (resa.deplacementSelonAdresse) lignes.push(`Déplacement : ${dollars(resa.deplacementSelonAdresse.dep75)} (≤75 km) ou ${dollars(resa.deplacementSelonAdresse.dep300)} (>75 km), selon l'adresse`);
-    parts.push(`À PAYER À LA RÉSERVATION — ${lignes.join(" ; ")} — Sous-total : ${dollars(resa.sousTotal)}${resa.deplacementSelonAdresse ? " + déplacement" : ""}, taxes en sus`);
+    const entete = exemptionChoisie(answers)
+      ? "EXEMPTION DEMANDÉE (déjà payé ou inclus, à vérifier par l'équipe) — montant normal"
+      : "À PAYER À LA RÉSERVATION";
+    parts.push(`${entete} — ${lignes.join(" ; ")} — Sous-total : ${dollars(resa.sousTotal)}${resa.deplacementSelonAdresse ? " + déplacement" : ""}, taxes en sus`);
   }
   if (c.forfait) parts.push(c.forfait);
   if (c.urgence) parts.push("TARIF D'URGENCE — " + c.urgence.lignes.join(" — "));
@@ -605,13 +637,15 @@ function buildPricingInfoDisplayed(serviceType, tarifs, urgency, answers = {}) {
 }
 
 // Montant à payer à la réservation (avant taxes ; les taxes sont calculées sur la page de paiement).
-function ResumeReservation({ resa, lang }) {
+function ResumeReservation({ resa, lang, exemption = false }) {
   const fr = lang !== "en";
   const d = (v) => dollars(v, lang);
   const dep = resa.deplacementSelonAdresse;
   return (
     <div data-reservation style={{ background: "#fff", border: `1px solid ${A}`, borderRadius: 10, padding: "12px 14px", margin: "12px 0 10px" }}>
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>💳 {fr ? "À payer à la réservation" : "Due upon booking"}</div>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>{exemption
+        ? (fr ? "🧾 Montant normal de ce service" : "🧾 Regular price of this service")
+        : (fr ? "💳 À payer à la réservation" : "💳 Due upon booking")}</div>
       <ul style={{ margin: "0 0 6px 0", paddingLeft: 20 }}>
         {resa.lignes.map((l) => <li key={l.fr}>{fr ? l.fr : l.en}{l.qte > 1 ? ` × ${l.qte}` : ""} : {d(l.qte * l.tarif)}</li>)}
         {dep && <li>{fr ? `Déplacement : ${d(dep.dep75)} (≤75 km) ou ${d(dep.dep300)} (>75 km), selon votre adresse`
@@ -622,8 +656,11 @@ function ResumeReservation({ resa, lang }) {
           : (fr ? `Sous-total : ${d(resa.sousTotal)}, taxes en sus` : `Subtotal: ${d(resa.sousTotal)}, taxes extra`)}
       </div>
       <div style={{ fontSize: 12, color: MUTED, marginTop: 6 }}>
-        {fr ? "Après l'envoi, vous serez dirigé vers la page de paiement sécurisée. Votre demande est planifiée dès le paiement reçu."
-          : "After submitting, you will be taken to the secure payment page. Your request is scheduled once payment is received."}
+        {exemption
+          ? (fr ? "Vous avez indiqué que ce service est déjà payé ou inclus : aucun paiement à l'envoi. Notre équipe le vérifie avant de planifier votre demande."
+            : "You indicated this service is already paid or included: no payment when submitting. Our team will verify it before scheduling your request.")
+          : (fr ? "Après l'envoi, vous serez dirigé vers la page de paiement sécurisée. Votre demande est planifiée dès le paiement reçu."
+            : "After submitting, you will be taken to the secure payment page. Your request is scheduled once payment is received.")}
       </div>
     </div>
   );
@@ -688,7 +725,7 @@ function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang, answers 
         </>
       )}
       {c.forfait && <div>💰 {c.forfait}</div>}
-      {resa && <ResumeReservation resa={resa} lang={lang} />}
+      {resa && <ResumeReservation resa={resa} lang={lang} exemption={exemptionChoisie(answers)} />}
       {/* Résumé de réservation affiché : il contient déjà les lignes (pas de doublon). */}
       {!resa && (c.lignes.length > 0 || c.diag) && (
         <>
@@ -816,7 +853,7 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   const error = fieldErrors[q.slug];
   const done = isAnswered(v) && !error;
   const garantie = answers.service_type === "warranty";
-  const libelle = (garantie && q.label_garantie) || (estPrepaye(answers) && q.label_prepaye) || q.label;
+  const libelle = (garantie && q.label_garantie) || (exemptionChoisie(answers) && q.label_exemption) || (estPrepaye(answers) && q.label_prepaye) || q.label;
   const lbl = libelle[lang] || libelle.fr;
   const phSrc = (garantie && q.placeholder_garantie) || q.placeholder;
   const ph = phSrc ? (phSrc[lang] || phSrc.fr) : "";
@@ -871,7 +908,7 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
       {q.help && <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.5 }}>{q.help[lang] || q.help.fr}</div>}
 
       {q.type === "radio" && (
-        <div style={{ display: "grid", gridTemplateColumns: q.options.length <= 4 ? "1fr 1fr" : "1fr", gap: 7 }}>
+        <div style={{ display: "grid", gridTemplateColumns: q.options.length <= 4 && !q.uneColonne ? "1fr 1fr" : "1fr", gap: 7 }}>
           {q.options.map(o => (
             <button key={o.value} onClick={() => onChange(q.slug, o.value)} style={optBtn(v === o.value)}>
               <span style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${v === o.value ? A : "#ccc"}`,
@@ -920,6 +957,7 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
             type={q.type === "tel" ? "tel" : q.type}
             value={v || ""}
             placeholder={ph}
+            maxLength={q.max_length || undefined}
             onChange={e => onChange(q.slug, e.target.value || null)}
             onBlur={e => onBlur && onBlur(q.slug, e.target.value)}
             style={inputStyle}
@@ -1149,6 +1187,8 @@ export default function AFIForm() {
   const [ticketId, setTicketId] = useState("");
   // { requis, url, total } renvoyé par /api/form/submit pour un service payable à la réservation.
   const [paiement, setPaiement] = useState(null);
+  // Exemption « déjà payé ou inclus » confirmée par le serveur : écran de confirmation adapté (aucun paiement).
+  const [exemption, setExemption] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [tarifs, setTarifs] = useState([]);
   const [tarifsError, setTarifsError] = useState(false);
@@ -1227,10 +1267,14 @@ export default function AFIForm() {
         "model_serial","serial_number","purchase_date","install_date","installed_by","maintained_by",
         "purchase_proof","photo_required","photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
-        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact"]);
+        "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact",
+        "payment_choice","exemption_reason","exemption_detail"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "serial_number","purchase_date","install_date","installed_by","maintained_by","purchase_proof",
-        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact"]);
+        "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact",
+        "payment_choice","exemption_reason","exemption_detail"]);
+      // « Je paie maintenant » : la raison et les précisions d'une exemption ne valent plus.
+      if (slug === "payment_choice" && value !== "already_paid") clearKeys(["exemption_reason","exemption_detail"]);
       // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
       // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas », urgence
@@ -1240,7 +1284,8 @@ export default function AFIForm() {
       // Conditions de paiement ou montant changés → le consentement doit être redonné, en connaissance de cause.
       if (slug !== "pricing_consent" && next.pricing_consent === true) {
         const montant = (x) => JSON.stringify(reservation(tarifs, x));
-        if (estPrepaye(prev) !== estPrepaye(next) || montant(prev) !== montant(next)) delete next.pricing_consent;
+        if (estPrepaye(prev) !== estPrepaye(next) || montant(prev) !== montant(next)
+          || exemptionChoisie(prev) !== exemptionChoisie(next)) delete next.pricing_consent;
       }
 
       // Clear error on change (re-validate on blur)
@@ -1305,7 +1350,8 @@ export default function AFIForm() {
       Object.entries(answers).forEach(([key, val]) => {
         // Description, urgence et pièce conservées ou restaurées entre types :
         // n'envoyer que ce que le client voit.
-        if (["description", "error_code", "urgency", "part_description"].includes(key) && !visibleSlugs.has(key)) return;
+        if (["description", "error_code", "urgency", "part_description", "payment_choice", "exemption_reason", "exemption_detail"].includes(key)
+          && !visibleSlugs.has(key)) return;
         if (key === "purchase_proof") {
           if (visibleSlugs.has(key) && Array.isArray(val)) preuves.push(...val.filter(x => x instanceof File).slice(0, 3));
           return;
@@ -1378,6 +1424,7 @@ export default function AFIForm() {
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setTicketId(data.ticket_hash || hash);
       setPaiement(data.paiement && data.paiement.requis ? data.paiement : null);
+      setExemption(!!(data.paiement && data.paiement.exemption));
       setSubmitted(true);
     } catch (err) {
       setFieldErrors(prev => ({
@@ -1402,14 +1449,18 @@ export default function AFIForm() {
         {lang === "fr" ? "Demande reçue!" : "Request received!"}
       </div>
       <div style={{ fontSize: 14, color: MUTED, lineHeight: 1.6, marginBottom: 20 }}>
-        {lang === "fr" ? "Notre équipe traitera votre demande dans les plus brefs délais. Vous recevrez une confirmation par courriel." : "Our team will process your request as soon as possible. You will receive a confirmation by email."}
+        {exemption
+          ? (lang === "fr"
+            ? "Vous avez indiqué que ce service est déjà payé ou inclus : notre équipe le vérifie avant de planifier votre demande. Si un paiement est requis, vous recevrez le lien de paiement par courriel ou par texto."
+            : "You indicated this service is already paid or included: our team will verify it before scheduling your request. If payment is required, you will receive the payment link by email or text message.")
+          : (lang === "fr" ? "Notre équipe traitera votre demande dans les plus brefs délais. Vous recevrez une confirmation par courriel." : "Our team will process your request as soon as possible. You will receive a confirmation by email.")}
       </div>
       <div style={{ display: "inline-block", padding: "8px 20px", background: AL, border: `1px solid ${A}`,
         borderRadius: 20, fontSize: 13, color: A, fontWeight: 600 }}>
         🎫 {ticketId}
       </div>
       <div style={{ marginTop: 24 }}>
-        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setPrefillNote(false); setJeton(""); setLienExpire(false); }} style={{
+        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setExemption(false); setPrefillNote(false); setJeton(""); setLienExpire(false); }} style={{
           padding: "9px 20px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG,
           fontFamily: "inherit", fontSize: 13, cursor: "pointer", color: MUTED,
         }}>
@@ -1491,12 +1542,12 @@ export default function AFIForm() {
           }}>
             {submitting
               ? (lang === "fr" ? "Envoi en cours..." : "Submitting...")
-              : estPrepaye(answers)
+              : payeALEnvoi(answers)
                 ? (lang === "fr" ? "Envoyer et payer →" : "Submit and pay →")
                 : (lang === "fr" ? "Envoyer ma demande →" : "Submit my request →")}
           </button>
           {submitting
-            ? <EtatEnvoi prepaye={estPrepaye(answers)} lang={lang} />
+            ? <EtatEnvoi prepaye={payeALEnvoi(answers)} lang={lang} />
             : (
               <div style={{ fontSize: 11, color: MUTED, marginTop: 10 }}>
                 🔒 {lang === "fr" ? "Vos informations sont sécurisées et confidentielles" : "Your information is secure and confidential"}
