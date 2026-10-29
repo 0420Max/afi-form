@@ -522,6 +522,8 @@ function isAnswered(v) {
 }
 
 function getVisible(ans) { return QUESTIONS.filter(q => q.show_if(ans)); }
+// Case à cocher seule obligatoire (consentements) : répondue seulement si COCHÉE — décochée (false) ne compte pas.
+function estRepondu(q, v) { return q.type === "checkbox_single" && estRequis(q, {}) ? v === true : isAnswered(v); }
 // required : booléen, ou fonction des réponses (ex. modèle obligatoire en garantie).
 function estRequis(q, ans) { return typeof q.required === "function" ? !!q.required(ans) : !!q.required; }
 
@@ -1247,11 +1249,11 @@ export default function AFIForm() {
     document.title = lang === "en" ? "Aqua Fibre Innovation — Service request form" : "Aqua Fibre Innovation — Formulaire de service";
   }, [lang]);
   const visible = getVisible(answers);
-  const answeredCount = visible.filter(q => q.type === "pricing_info" || (isAnswered(answers[q.slug]) && !fieldErrors[q.slug])).length;
+  const answeredCount = visible.filter(q => q.type === "pricing_info" || (estRepondu(q, answers[q.slug]) && !fieldErrors[q.slug])).length;
   const progress = visible.length > 0 ? Math.round((answeredCount / visible.length) * 100) : 0;
 
   const hasValidationErrors = Object.values(fieldErrors).some(e => !!e);
-  const allRequiredDone = visible.filter(q => estRequis(q, answers)).every(q => isAnswered(answers[q.slug]) && !fieldErrors[q.slug]);
+  const allRequiredDone = visible.filter(q => estRequis(q, answers)).every(q => estRepondu(q, answers[q.slug]) && !fieldErrors[q.slug]);
   const isEmployee = answers.client_type === "employee";
   const canSubmit = allRequiredDone && !hasValidationErrors && visible.length > 3 && (
     isEmployee
@@ -1275,6 +1277,9 @@ export default function AFIForm() {
         "payment_choice","exemption_reason","exemption_detail"]);
       // « Je paie maintenant » : la raison et les précisions d'une exemption ne valent plus.
       if (slug === "payment_choice" && value !== "already_paid") clearKeys(["exemption_reason","exemption_detail"]);
+      // Consentement retiré : le choix de paiement devient invisible, il ne doit pas rester en mémoire (sinon
+      // l'écran dirait « aucun paiement » alors que le serveur, qui ne le reçoit pas, demanderait le paiement).
+      if (slug === "gdpr_consent" && value !== true) clearKeys(["payment_choice","exemption_reason","exemption_detail"]);
       // description et error_code volontairement conservés (texte du client ou prérempli) :
       // elle n'est envoyée que si sa question est visible (cf. handleSubmit).
       // Réponses préremplies (ex. Spa depuis « Mon spa ne chauffe pas », urgence
