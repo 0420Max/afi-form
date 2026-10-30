@@ -1265,12 +1265,20 @@ export default function AFIForm() {
     setAnswers(prev => {
       const next = { ...prev, [slug]: value };
       const clearKeys = (keys) => keys.forEach(k => delete next[k]);
-      if (slug === "request_type") clearKeys(["service_type","equipment","missing_equipment","pool_type",
+      const REPONSES_DEMANDE = ["service_type","equipment","missing_equipment","pool_type",
         "model_serial","serial_number","purchase_date","install_date","installed_by","maintained_by",
         "purchase_proof","photo_required","photo_optional","urgency","part_description","delivery_urgency","delivery_method","quote_intent",
         "payment_method","purchase_order_file","return_reason","original_order_number","returned_part",
         "part_installed","rma_resolution","return_method","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact",
-        "payment_choice","exemption_reason","exemption_detail"]);
+        "payment_choice","exemption_reason","exemption_detail"];
+      if (slug === "request_type") clearKeys(REPONSES_DEMANDE);
+      // Changement de type de client : les réponses de l'autre parcours ne doivent ni réapparaître ni partir.
+      // Vers « Employé » : le type de demande (d'un autre parcours ou d'un lien ?type=) referait apparaître
+      // les questions client (type de service, pièce…) dans le parcours employé.
+      if (slug === "client_type" && value === "employee" && prev.client_type !== "employee") clearKeys(["request_type", ...REPONSES_DEMANDE]);
+      // Hors « Employé » : les champs Fast Track ne valent plus (le serveur les lit en repli).
+      if (slug === "client_type" && value !== "employee" && prev.client_type === "employee") clearKeys(["employee_number","ft_call_type",
+        "ft_description","ft_client_name","ft_client_address","ft_client_email","ft_client_phone","ft_urgency"]);
       if (slug === "service_type") clearKeys(["equipment","missing_equipment","pool_type","model_serial",
         "serial_number","purchase_date","install_date","installed_by","maintained_by","purchase_proof",
         "photo_required","photo_optional","urgency","plumbing_devices","plumbing_devices_exact","plumbing_two_step","closing_jets","closing_jets_exact",
@@ -1352,7 +1360,12 @@ export default function AFIForm() {
       const preuves = []; // preuve d'achat : champ multipart séparé « preuve_achat »
 
       const visibleSlugs = new Set(visible.map(q => q.slug));
+      const isEmployeeSubmit = answers.client_type === "employee";
       Object.entries(answers).forEach(([key, val]) => {
+        // Parcours employé : seulement ce qui est affiché. Les réponses d'un autre parcours ou d'un lien
+        // prérempli (nom, courriel, type de service…) restent en mémoire mais cachées ; le serveur les
+        // ferait passer avant les champs employé (full_name avant ft_client_name, etc.).
+        if (isEmployeeSubmit && !visibleSlugs.has(key)) return;
         // Description, urgence et pièce conservées ou restaurées entre types :
         // n'envoyer que ce que le client voit.
         if (["description", "error_code", "urgency", "part_description", "payment_choice", "exemption_reason", "exemption_detail"].includes(key)
@@ -1386,6 +1399,12 @@ export default function AFIForm() {
         const jReel = nbJets(answers);
         if (jReel != null) payloadData.closing_jets = jReel;
         delete payloadData.closing_jets_exact;
+      }
+      // Parcours « Employé AFI » : pas de question « type de demande ». Sans elle, le serveur refusait
+      // l'envoi (400). Toujours déduit du type d'appel reçu : achat d'une pièce → achat, tout autre → service
+      // (même règle que lib/formTypeDemande.js côté serveur).
+      if (isEmployeeSubmit) {
+        payloadData.request_type = answers.ft_call_type === "purchase" ? "purchase" : "service";
       }
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
