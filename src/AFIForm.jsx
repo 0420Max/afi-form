@@ -1387,6 +1387,12 @@ export default function AFIForm() {
         if (jReel != null) payloadData.closing_jets = jReel;
         delete payloadData.closing_jets_exact;
       }
+      // Parcours « Employé AFI » : pas de question « type de demande ». Sans elle, le serveur refusait
+      // l'envoi (400). Achat d'une pièce → achat, tout autre type d'appel → service (même règle que
+      // lib/formTypeDemande.js côté serveur).
+      if (answers.client_type === "employee" && !payloadData.request_type) {
+        payloadData.request_type = answers.ft_call_type === "purchase" ? "purchase" : "service";
+      }
       payloadData.ticket_hash = hash;
       payloadData.submitted_at = new Date().toISOString();
       payloadData.origin = "web";
