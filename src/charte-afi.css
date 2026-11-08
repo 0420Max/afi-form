@@ -1,0 +1,263 @@
+/* ─── Charte AFI ────────────────────────────────────────────────────────────────
+   Couleurs relevées sur le logo AFI (dégradé ciel → bleu AFI → marine).
+   Le reste du formulaire garde ses styles en ligne (AFIForm.jsx) ; ce fichier porte
+   ce que les styles en ligne ne savent pas faire : police, survol, focus visible,
+   état désactivé, largeur d'écran et mouvement réduit.
+   Contrastes (WCAG AA) vérifiés : blanc sur --afi-bleu 4,7:1 ; --afi-texte-2 sur blanc
+   7,6:1 ; --afi-erreur sur --afi-erreur-fond 6:1 ; bordure des champs 3:1. */
+
+:root {
+  --afi-ciel: #02A0DF;          /* haut du dégradé (décor seulement : 3:1 sur blanc) */
+  --afi-bleu: #067AB5;          /* bleu AFI : bouton principal, sélection, focus */
+  --afi-bleu-fonce: #05679A;    /* survol ; texte bleu sur fond teinté (5,6:1) */
+  --afi-bleu-presse: #04557F;
+  --afi-marine: #2C415E;        /* bas du dégradé : titres */
+  --afi-bleu-pale: #E8F4FB;     /* fond d'un choix sélectionné, encadrés d'information */
+  --afi-bleu-voile: #F2F8FC;    /* survol d'un choix */
+
+  --afi-texte: #131B26;
+  --afi-texte-2: #4A5565;       /* aides, notes, compteurs */
+  --afi-fond: #F3F6F9;          /* fond de page */
+  --afi-carte: #FFFFFF;
+  --afi-bord: #DCE3EA;          /* bord des cartes (décor) */
+  --afi-bord-choix: #B9C3CF;    /* bord des choix (le texte les identifie) */
+  --afi-bord-champ: #8A96A3;    /* bord des champs : 3:1 sur blanc */
+  --afi-indice: #6B7684;        /* texte indicatif des champs : 4,6:1 sur blanc */
+
+  --afi-erreur: #B42318;
+  --afi-erreur-fond: #FEF3F2;
+  --afi-erreur-bord: #D92D20;
+  --afi-succes: #067647;
+  --afi-succes-fond: #ECFDF3;
+
+  --afi-ombre: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.07);
+  --afi-anneau: 0 0 0 3px rgba(6, 122, 181, 0.28);
+
+  --afi-police-titre: "Bai Jamjuree", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --afi-police-texte: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--afi-fond);
+  color: var(--afi-texte);
+  font-family: var(--afi-police-texte);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Mise en page ─── */
+.afi-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--afi-fond); }
+.afi-conteneur { width: 100%; max-width: 600px; margin: 0 auto; padding: 0 16px; }
+.afi-contenu { flex: 1; padding-bottom: 32px; }
+
+/* ─── En-tête ─── */
+.afi-entete { background: var(--afi-carte); border-bottom: 1px solid var(--afi-bord); }
+.afi-entete::before {
+  content: ""; display: block; height: 4px;
+  background: linear-gradient(90deg, var(--afi-ciel), var(--afi-bleu) 55%, var(--afi-marine));
+}
+.afi-entete .afi-conteneur { display: flex; align-items: center; justify-content: center; padding-top: 12px; padding-bottom: 12px; }
+.afi-entete__logo { display: block; height: 48px; width: auto; }
+
+.afi-titre { padding: 24px 0 16px; text-align: center; }
+.afi-titre__marque {
+  margin: 0 0 4px; font-family: var(--afi-police-titre); font-weight: 600; font-size: 13px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--afi-bleu-fonce);
+}
+.afi-titre__h1 {
+  margin: 0; font-family: var(--afi-police-titre); font-weight: 700; font-size: 28px;
+  line-height: 1.2; color: var(--afi-marine); letter-spacing: -0.01em;
+}
+
+/* ─── Progression ─── */
+.afi-progression { margin: 0 0 16px; }
+.afi-progression__piste { height: 8px; border-radius: 999px; background: #DCE3EA; overflow: hidden; }
+.afi-progression__barre {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--afi-ciel), var(--afi-bleu));
+  transition: width 0.4s ease;
+}
+.afi-progression__texte {
+  margin-top: 8px; text-align: right; font-family: var(--afi-police-titre); font-weight: 500;
+  font-size: 13px; color: var(--afi-texte-2);
+}
+
+/* ─── Cartes de question ─── */
+.afi-carte {
+  background: var(--afi-carte); border: 1px solid var(--afi-bord); border-radius: 12px;
+  box-shadow: var(--afi-ombre); padding: 16px; margin-bottom: 16px;
+  scroll-margin-top: 16px;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.afi-carte[data-etat="fait"] { border-color: #9CCBE6; }
+.afi-carte[data-etat="erreur"] { border-color: var(--afi-erreur-bord); background: var(--afi-erreur-fond); }
+.afi-carte__compteur {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;
+  font-family: var(--afi-police-titre); font-weight: 600; font-size: 13px;
+  letter-spacing: 0.04em; color: var(--afi-texte-2);
+}
+.afi-carte[data-etat="fait"] .afi-carte__compteur { color: var(--afi-bleu-fonce); }
+.afi-carte__titre {
+  font-family: var(--afi-police-titre); font-weight: 600; font-size: 18px; line-height: 1.35;
+  color: var(--afi-texte); margin-bottom: 16px;
+}
+.afi-carte__titre--aide { margin-bottom: 8px; }
+.afi-carte__aide { font-size: 14px; line-height: 1.5; color: var(--afi-texte-2); margin-bottom: 16px; }
+
+/* ─── Choix (bouton radio, case, oui/non, consentement) ─── */
+/* Une colonne sur téléphone (aucun mot coupé, cibles pleine largeur) ; 2 colonnes dès 480 px. */
+.afi-grille-choix { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+@media (min-width: 480px) {
+  .afi-grille-choix--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.afi-choix > span:last-child { min-width: 0; overflow-wrap: break-word; }
+.afi-choix {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px;
+  padding: 12px 14px; border-radius: 8px; border: 1.5px solid var(--afi-bord-choix);
+  background: var(--afi-carte); color: var(--afi-texte);
+  font-family: var(--afi-police-titre); font-size: 16px; font-weight: 500; line-height: 1.35;
+  text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+.afi-choix[aria-pressed="true"], .afi-choix[aria-checked="true"] {
+  border-color: var(--afi-bleu); background: var(--afi-bleu-pale); font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--afi-bleu);
+}
+.afi-choix--consentement { align-items: flex-start; font-family: var(--afi-police-texte); font-size: 15px; font-weight: 400; line-height: 1.5; }
+.afi-choix--consentement[aria-checked="true"] { font-weight: 400; }
+.afi-choix--oui-non { justify-content: center; font-weight: 600; }
+.afi-choix--oui[aria-pressed="true"] { border-color: var(--afi-succes); background: var(--afi-succes-fond); color: var(--afi-succes); box-shadow: inset 0 0 0 1px var(--afi-succes); }
+.afi-choix--non[aria-pressed="true"] { border-color: var(--afi-erreur); background: var(--afi-erreur-fond); color: var(--afi-erreur); box-shadow: inset 0 0 0 1px var(--afi-erreur); }
+
+/* Pastille ronde (choix unique) et case carrée (choix multiples) */
+.afi-pastille, .afi-case {
+  flex-shrink: 0; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid #7C8896; background: var(--afi-carte); color: #fff; font-size: 12px; font-weight: 700; line-height: 1;
+}
+.afi-pastille { border-radius: 50%; }
+.afi-case { border-radius: 5px; }
+.afi-choix--consentement .afi-case { margin-top: 1px; }
+[aria-pressed="true"] > .afi-pastille { border-color: var(--afi-bleu); box-shadow: inset 0 0 0 3px #fff; background: var(--afi-bleu); }
+[aria-pressed="true"] > .afi-case, [aria-checked="true"] > .afi-case { border-color: var(--afi-bleu); background: var(--afi-bleu); }
+
+/* ─── Champs ─── */
+.afi-champ {
+  display: block; width: 100%; min-height: 48px; padding: 12px 14px; border-radius: 8px;
+  border: 1.5px solid var(--afi-bord-champ); background: var(--afi-carte); color: var(--afi-texte);
+  font-family: var(--afi-police-texte); font-size: 16px; /* 16 px : pas de zoom automatique sur iPhone */
+  line-height: 1.4; outline: none; -webkit-appearance: none; appearance: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+textarea.afi-champ { resize: vertical; }
+input[type="date"].afi-champ { min-height: 48px; }
+.afi-champ::placeholder { color: var(--afi-indice); opacity: 1; }
+.afi-champ:focus { border-color: var(--afi-bleu); box-shadow: var(--afi-anneau); }
+.afi-champ[aria-invalid="true"] { border-color: var(--afi-erreur-bord); background: #FFFBFA; }
+.afi-champ[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.22); }
+.afi-erreur {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 12px;
+  border-radius: 8px; background: var(--afi-erreur-fond); border: 1px solid #FDA29B;
+  font-size: 14px; font-weight: 500; line-height: 1.45; color: var(--afi-erreur);
+}
+.afi-indication { margin-top: 8px; font-size: 13px; line-height: 1.45; color: var(--afi-texte-2); }
+
+/* ─── Dépôt de fichiers ─── */
+.afi-depot {
+  display: block; width: 100%; min-height: 48px; padding: 16px; border-radius: 8px;
+  border: 2px dashed var(--afi-bord-champ); background: #F8FAFC; color: var(--afi-texte);
+  font-family: var(--afi-police-titre); font-size: 15px; font-weight: 500; text-align: center; cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.afi-depot[data-rempli="true"] { border-color: var(--afi-bleu); background: var(--afi-bleu-pale); color: var(--afi-bleu-fonce); }
+.afi-depot:disabled { cursor: not-allowed; color: var(--afi-texte-2); background: #F1F3F5; border-color: var(--afi-bord-choix); }
+.afi-miniature__retirer {
+  position: absolute; top: 0; right: 0; width: 44px; height: 44px; padding: 0; border: none;
+  background: transparent; cursor: pointer; display: flex; align-items: flex-start; justify-content: flex-end;
+}
+.afi-miniature__retirer span {
+  margin: 4px; width: 28px; height: 28px; border-radius: 50%; background: rgba(19, 27, 38, 0.78); color: #fff;
+  font-size: 14px; line-height: 28px; text-align: center;
+}
+
+/* ─── Boutons ─── */
+.afi-bouton {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px;
+  padding: 12px 24px; border-radius: 10px; border: 1.5px solid transparent;
+  font-family: var(--afi-police-titre); font-size: 16px; font-weight: 600; line-height: 1.25;
+  text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.afi-bouton--principal {
+  background: var(--afi-bleu); color: #fff; font-size: 17px; font-weight: 700; min-height: 52px; padding: 14px 32px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08), 0 4px 12px rgba(6, 122, 181, 0.22);
+}
+.afi-bouton--principal:active:not(:disabled) { background: var(--afi-bleu-presse); }
+.afi-bouton--principal:disabled { background: #C9D2DB; color: #3B4652; box-shadow: none; cursor: not-allowed; }
+.afi-bouton--secondaire { background: var(--afi-carte); color: var(--afi-bleu-fonce); border-color: var(--afi-bleu); }
+.afi-bouton--secondaire:active { background: var(--afi-bleu-pale); }
+.afi-bouton--bloc { display: flex; width: 100%; }
+.afi-envoi { margin-top: 24px; padding: 8px 0 16px; text-align: center; }
+.afi-envoi .afi-bouton--principal { width: 100%; }
+.afi-envoi__note { margin-top: 12px; font-size: 13px; color: var(--afi-texte-2); }
+
+/* Survol : appareils à pointeur seulement (pas d'état « collé » au doigt sur téléphone). */
+@media (hover: hover) {
+  .afi-choix:hover { border-color: var(--afi-bleu); background: var(--afi-bleu-voile); }
+  .afi-choix[aria-pressed="true"]:hover, .afi-choix[aria-checked="true"]:hover { background: var(--afi-bleu-pale); }
+  .afi-choix--oui[aria-pressed="true"]:hover { background: var(--afi-succes-fond); border-color: var(--afi-succes); }
+  .afi-choix--non[aria-pressed="true"]:hover { background: var(--afi-erreur-fond); border-color: var(--afi-erreur); }
+  .afi-champ:hover:not(:focus) { border-color: #66727F; }
+  .afi-depot:hover:not(:disabled) { border-color: var(--afi-bleu); background: var(--afi-bleu-voile); }
+  .afi-bouton--principal:hover:not(:disabled) { background: var(--afi-bleu-fonce); }
+  .afi-bouton--secondaire:hover { background: var(--afi-bleu-pale); }
+  .afi-pied a:hover { text-decoration-thickness: 2px; }
+}
+
+/* Focus visible au clavier : anneau bleu AFI, jamais retiré. */
+.afi-choix:focus-visible, .afi-depot:focus-visible, .afi-bouton:focus-visible,
+.afi-miniature__retirer:focus-visible, .afi-pied a:focus-visible {
+  outline: 3px solid var(--afi-bleu); outline-offset: 2px;
+}
+
+/* ─── Pied de page ─── */
+.afi-pied { background: var(--afi-carte); border-top: 1px solid var(--afi-bord); }
+.afi-pied .afi-conteneur { padding-top: 24px; padding-bottom: 24px; text-align: center; font-size: 14px; line-height: 1.6; color: var(--afi-texte-2); }
+.afi-pied__nom { font-family: var(--afi-police-titre); font-weight: 600; color: var(--afi-marine); margin-bottom: 4px; }
+.afi-pied a {
+  display: inline-flex; align-items: center; min-height: 44px; color: var(--afi-bleu-fonce);
+  font-weight: 600; text-decoration: underline; text-underline-offset: 3px;
+}
+
+/* ─── Écrans de fin (merci, paiement) ─── */
+.afi-fin { text-align: center; padding: 40px 0 16px; }
+.afi-fin__icone { font-size: 48px; line-height: 1; margin-bottom: 16px; }
+.afi-fin__titre { margin: 0 0 8px; font-family: var(--afi-police-titre); font-weight: 700; font-size: 26px; line-height: 1.25; color: var(--afi-marine); }
+.afi-fin__texte { margin: 0 auto 24px; max-width: 480px; font-size: 16px; line-height: 1.6; color: var(--afi-texte-2); }
+.afi-dossier {
+  display: inline-block; padding: 8px 20px; border-radius: 999px; background: var(--afi-bleu-pale);
+  border: 1px solid var(--afi-bleu); color: var(--afi-bleu-fonce);
+  font-family: var(--afi-police-titre); font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
+}
+
+/* ─── Tablette et bureau ─── */
+@media (min-width: 600px) {
+  .afi-conteneur { padding: 0 24px; }
+  .afi-entete__logo { height: 56px; }
+  .afi-titre { padding: 32px 0 24px; }
+  .afi-titre__h1 { font-size: 32px; }
+  .afi-carte { padding: 24px; }
+  .afi-envoi .afi-bouton--principal { width: auto; min-width: 320px; }
+}
+
+/* ─── Mouvement réduit ─── */
+@media (prefers-reduced-motion: reduce) {
+  .afi-carte, .afi-choix, .afi-champ, .afi-depot, .afi-bouton, .afi-progression__barre { transition: none; }
+  /* L'indicateur d'envoi reste visible (le client doit voir que ça travaille), mais tourne lentement. */
+  .afi-tourne { animation-duration: 2.4s !important; }
+}

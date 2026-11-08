@@ -5,6 +5,9 @@ import { readPrefill, restaurerPrefill, lireJeton, chargerLienCourt } from "./pr
 // variable = production).
 const AFI_BACKEND = (import.meta.env && import.meta.env.VITE_AFI_BACKEND) || "https://afi-ops-backend.onrender.com";
 import { grille, dollars, fmt, LIVRAISON, estPrepaye, exemptionChoisie, payeALEnvoi, EXEMPTION_DETAIL_MAX, reservation, nbAppareils, nbJets, APPAREILS_MAX, JETS_MAX } from "./tarifs.js";
+// Logo AFI (dégradé ciel → bleu AFI → marine) : WebP léger, PNG en repli pour les vieux navigateurs.
+import logoAfiWebp from "./assets/logo-afi.webp";
+import logoAfiPng from "./assets/logo-afi.png";
 
 // ── Compression image avant upload ──────────────────────────────────────────
 // Photos réduites à ~2 000 px (côté le plus long), JPEG qualité 0,8. Un format que
@@ -504,15 +507,25 @@ function getFieldError(q, value, lang) {
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 
-const A = "#0e5f8a";
-const AL = "#e8f3f9";
-const BG = "#f8f7f4";
-const BORDER = "#e2ddd8";
-const TEXT = "#1a1714";
-const MUTED = "#8a847e";
-const ERROR_COLOR = "#c0392b";
-const ERROR_BG = "#fdecea";
-const ERROR_BORDER = "#e57373";
+// Charte AFI : mêmes valeurs que src/charte-afi.css (qui porte aussi survol, focus et largeurs d'écran).
+const A = "#067AB5";        // bleu AFI
+const A_TEXTE = "#05679A";  // bleu AFI pour du texte sur fond teinté (contraste AA)
+const AL = "#E8F4FB";       // bleu pâle
+const BORDER = "#DCE3EA";
+const TEXT = "#131B26";
+const MUTED = "#4A5565";    // texte secondaire : 7,6:1 sur blanc
+const ERROR_COLOR = "#B42318";
+const ERROR_BG = "#FEF3F2";
+const ERROR_BORDER = "#D92D20";
+
+// Défilement automatique vers la question suivante : doux, sauf si l'appareil demande moins de mouvement.
+function defilement() {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"; }
+  catch (_e) { return "smooth"; }
+}
+
+// Types de question où un seul geste donne la réponse : on peut passer à la suivante.
+const DEFILEMENT_APRES = new Set(["radio", "toggle", "checkbox_single"]);
 
 function isAnswered(v) {
   if (v == null) return false;
@@ -529,25 +542,12 @@ function estRequis(q, ans) { return typeof q.required === "function" ? !!q.requi
 
 // ─── INLINE ERROR COMPONENT ──────────────────────────────────────────────────
 
-function FieldError({ message }) {
+function FieldError({ message, id }) {
   if (!message) return null;
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      marginTop: 6,
-      padding: "6px 10px",
-      borderRadius: 6,
-      background: ERROR_BG,
-      border: `1px solid ${ERROR_BORDER}`,
-      fontSize: 12,
-      color: ERROR_COLOR,
-      fontWeight: 500,
-      lineHeight: 1.4,
-    }}>
-      <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
-      {message}
+    <div id={id} role="alert" className="afi-erreur">
+      <span aria-hidden="true" style={{ flexShrink: 0 }}>⚠️</span>
+      <span>{message}</span>
     </div>
   );
 }
@@ -644,8 +644,8 @@ function ResumeReservation({ resa, lang, exemption = false }) {
   const d = (v) => dollars(v, lang);
   const dep = resa.deplacementSelonAdresse;
   return (
-    <div data-reservation style={{ background: "#fff", border: `1px solid ${A}`, borderRadius: 10, padding: "12px 14px", margin: "12px 0 10px" }}>
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>{exemption
+    <div data-reservation style={{ background: "#fff", border: `1px solid ${A}`, borderRadius: 8, padding: "12px 16px", margin: "16px 0 8px" }}>
+      <div style={{ fontFamily: "var(--afi-police-titre)", fontWeight: 700, color: "var(--afi-marine)", marginBottom: 8 }}>{exemption
         ? (fr ? "🧾 Montant normal de ce service" : "🧾 Regular price of this service")
         : (fr ? "💳 À payer à la réservation" : "💳 Due upon booking")}</div>
       <ul style={{ margin: "0 0 6px 0", paddingLeft: 20 }}>
@@ -673,23 +673,25 @@ function PricingInfo({ serviceType, urgency, tarifs, tarifsError, lang, answers 
   const fr = lang !== "en";
 
   const wrap = {
-    background: AL,
-    border: `1.5px solid ${A}`,
+    background: "#F2F8FC",
+    border: "1px solid #B9DCF0",
+    borderLeft: `4px solid ${A}`,
     borderRadius: 12,
-    padding: "18px 16px",
-    marginBottom: 10,
-    fontSize: 14,
+    padding: "16px",
+    marginBottom: 16,
+    fontSize: 15,
     lineHeight: 1.55,
     color: TEXT,
+    scrollMarginTop: 16,
   };
   const title = (
-    <div style={{ fontSize: 13, fontWeight: 700, color: A, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+    <div style={{ fontFamily: "var(--afi-police-titre)", fontSize: 13, fontWeight: 700, color: A_TEXTE, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
       💡 {fr ? "Tarifs applicables AFI" : "Applicable AFI rates"}
     </div>
   );
   const boiteUrgence = (children) => (
-    <div data-tarif-urgence style={{ background: "#fff4e5", border: "2px solid #d9480f", borderRadius: 10,
-      padding: "12px 14px", margin: "0 0 12px 0", color: "#7a2a05" }}>
+    <div data-tarif-urgence style={{ background: "#fff4e5", border: "2px solid #d9480f", borderRadius: 8,
+      padding: "12px 16px", margin: "0 0 16px 0", color: "#7a2a05" }}>
       <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>⚠️ {fr ? "Tarif d'urgence" : "Emergency rate"}</div>
       {children}
     </div>
@@ -764,10 +766,9 @@ function Miniature({ file, lang, onRetirer }) {
       {url
         ? <img src={url} alt={file.name} onError={() => setUrl(null)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         : <span style={{ fontSize: 10, color: MUTED, padding: 6, textAlign: "center", wordBreak: "break-all" }}>📄 {file.name}</span>}
-      <button type="button" onClick={onRetirer}
-        aria-label={(lang === "fr" ? "Retirer " : "Remove ") + file.name}
-        style={{ position: "absolute", top: 4, right: 4, width: 26, height: 26, borderRadius: 13, border: "none",
-          background: "rgba(0,0,0,0.65)", color: "#fff", fontSize: 14, lineHeight: "26px", cursor: "pointer", padding: 0 }}>✕</button>
+      {/* Cible de 44 px (doigt), pastille visible de 28 px dans le coin. */}
+      <button type="button" onClick={onRetirer} className="afi-miniature__retirer"
+        aria-label={(lang === "fr" ? "Retirer " : "Remove ") + file.name}><span aria-hidden="true">✕</span></button>
     </div>
   );
 }
@@ -815,13 +816,10 @@ function PhotosMultiples({ q, v, lang, onChange }) {
           {fichiers.map((f, i) => <Miniature key={f.name + f.size + i} file={f} lang={lang} onRetirer={() => retirer(i)} />)}
         </div>
       )}
-      <button type="button" disabled={plein} onClick={() => fRef.current?.click()} style={{
-        width: "100%", border: `2px dashed ${fichiers.length ? A : BORDER}`, borderRadius: 8, padding: "16px",
-        textAlign: "center", cursor: plein ? "not-allowed" : "pointer", background: fichiers.length ? AL : BG,
-        fontFamily: "inherit", color: plein ? MUTED : TEXT, opacity: plein ? 0.6 : 1,
-      }}>
-        <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
-        <div style={{ fontSize: 13, fontWeight: 500 }}>
+      <button type="button" disabled={plein} onClick={() => fRef.current?.click()}
+        className="afi-depot" data-rempli={fichiers.length > 0 ? "true" : "false"}>
+        <div aria-hidden="true" style={{ fontSize: 22, marginBottom: 8 }}>📎</div>
+        <div>
           {plein
             ? (lang === "fr" ? `Limite de ${max} ${T.fr} atteinte` : `${max}-${T.en.replace(/s$/, "")} limit reached`)
             : fichiers.length
@@ -831,9 +829,9 @@ function PhotosMultiples({ q, v, lang, onChange }) {
       </button>
       <input ref={fRef} type="file" multiple accept="image/jpeg,image/png,image/heic,image/heif,image/webp,.pdf" style={{ display: "none" }}
         onChange={e => { ajouter([...(e.target.files || [])]); e.target.value = ''; }} />
-      {msg && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: ERROR_COLOR }}>{msg}</div>}
+      {msg && <div role="alert" className="afi-erreur">{msg}</div>}
       {!q.preuve && (
-        <div style={{ marginTop: 8, fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
+        <div className="afi-indication">
           {lang === "fr"
             ? "Vous pourrez aussi ajouter des photos ou des vidéos plus tard en répondant au courriel de confirmation."
             : "You can also add photos or videos later by replying to the confirmation email."}
@@ -868,85 +866,61 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
   };
 
   const hasError = !!error;
-
-  const card = {
-    background: hasError ? ERROR_BG : (done ? AL : "#fff"),
-    border: `1.5px solid ${hasError ? ERROR_BORDER : (done ? A : BORDER)}`,
-    borderRadius: 12, padding: "18px 16px", marginBottom: 10,
-    transition: "border-color 0.2s, background 0.2s",
+  // Étiquette de la question = nom accessible des champs ; message d'erreur relié au champ.
+  const idTitre = "titre-" + q.slug;
+  const idErreur = "erreur-" + q.slug;
+  const ariaChamp = {
+    "aria-labelledby": idTitre,
+    "aria-invalid": hasError ? "true" : undefined,
+    "aria-describedby": hasError ? idErreur : undefined,
   };
-
-  const inputStyle = {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 8,
-    border: `1.5px solid ${hasError ? ERROR_BORDER : BORDER}`,
-    background: hasError ? "#fff5f5" : BG,
-    fontFamily: "inherit",
-    fontSize: 15,
-    outline: "none",
-    boxSizing: "border-box",
-    color: TEXT,
-    transition: "border-color 0.2s",
-  };
-
-  const optBtn = (sel) => ({
-    display: "flex", alignItems: "center", gap: 9, padding: "9px 12px",
-    borderRadius: 8, border: `1.5px solid ${sel ? A : BORDER}`,
-    background: sel ? AL : BG, fontFamily: "inherit", fontSize: 15,
-    cursor: "pointer", textAlign: "left", color: TEXT,
-    fontWeight: sel ? 600 : 400, transition: "all 0.15s",
-  });
 
   return (
-    <div id={"q-" + q.slug} style={card}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>
+    <div id={"q-" + q.slug} className="afi-carte" data-etat={hasError ? "erreur" : (done ? "fait" : undefined)}>
+      <div className="afi-carte__compteur">
         {q.badge && answers.client_type === "employee"
-          ? <span style={{ background: "#fff3cd", color: "#856404", padding: "2px 8px", borderRadius: 4, marginRight: 8 }}>{q.badge[lang] || q.badge.fr}</span>
+          ? <span style={{ background: "#FFFAEB", color: "#7A2E0E", border: "1px solid #FEC84B", padding: "2px 8px", borderRadius: 6, letterSpacing: 0 }}>{q.badge[lang] || q.badge.fr}</span>
           : null}
-        {idx}/{total}
+        <span>{done && <span aria-hidden="true">✓ </span>}{idx}/{total}</span>
       </div>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: q.help ? 6 : 14, lineHeight: 1.4, color: TEXT }}>{lbl}</div>
-      {q.help && <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.5 }}>{q.help[lang] || q.help.fr}</div>}
+      <div id={idTitre} className={"afi-carte__titre" + (q.help ? " afi-carte__titre--aide" : "")}>{lbl}</div>
+      {q.help && <div className="afi-carte__aide">{q.help[lang] || q.help.fr}</div>}
 
       {q.type === "radio" && (
-        <div style={{ display: "grid", gridTemplateColumns: q.options.length <= 4 && !q.uneColonne ? "1fr 1fr" : "1fr", gap: 7 }}>
+        // 2 colonnes (≤ 4 choix) à partir de 480 px ; une seule sur téléphone, pour ne jamais couper un mot.
+        <div role="group" aria-labelledby={idTitre}
+          className={"afi-grille-choix" + (q.options.length <= 4 && !q.uneColonne ? " afi-grille-choix--2" : "")}>
           {q.options.map(o => (
-            <button key={o.value} onClick={() => onChange(q.slug, o.value)} style={optBtn(v === o.value)}>
-              <span style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${v === o.value ? A : "#ccc"}`,
-                background: v === o.value ? A : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                {v === o.value && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "white", display: "block" }} />}
-              </span>
-              {o.label[lang] || o.label.fr}
+            <button type="button" key={o.value} onClick={() => onChange(q.slug, o.value)}
+              className="afi-choix" aria-pressed={v === o.value}>
+              <span className="afi-pastille" aria-hidden="true" />
+              <span>{o.label[lang] || o.label.fr}</span>
             </button>
           ))}
         </div>
       )}
 
       {q.type === "checkbox" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div role="group" aria-labelledby={idTitre} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {q.options.map(o => {
             const chk = Array.isArray(v) && v.includes(o.value);
             return (
-              <button key={o.value} onClick={() => toggleCb(o)} style={optBtn(chk)}>
-                <span style={{ width: 15, height: 15, borderRadius: 4, border: `2px solid ${chk ? A : "#ccc"}`,
-                  background: chk ? A : "transparent", display: "flex", alignItems: "center", justifyContent: "center",
-                  flexShrink: 0, color: "white", fontSize: 10, fontWeight: 700 }}>{chk ? "✓" : ""}</span>
-                {o.label[lang] || o.label.fr}
+              <button type="button" key={o.value} onClick={() => toggleCb(o)} className="afi-choix" aria-pressed={chk}>
+                <span className="afi-case" aria-hidden="true">{chk ? "✓" : ""}</span>
+                <span>{o.label[lang] || o.label.fr}</span>
               </button>
             );
           })}
           {!q.required && (
-            <button onClick={() => { if (!Array.isArray(v) || v.length === 0) onChange(q.slug, []); }}
-              style={{ marginTop: 6, padding: "9px 14px", borderRadius: 8, border: `1.5px solid ${A}`,
-                background: AL, color: A, fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <button type="button" onClick={() => { if (!Array.isArray(v) || v.length === 0) onChange(q.slug, []); }}
+              className="afi-bouton afi-bouton--secondaire afi-bouton--bloc" style={{ marginTop: 8 }}>
               {Array.isArray(v) && v.length > 0
                 ? `✅ ${v.length} ${lang === "fr" ? `sélectionné${v.length > 1 ? "s" : ""}` : "selected"} — ${lang === "fr" ? "Continuer →" : "Continue →"}`
                 : (lang === "fr" ? "Aucun — Continuer →" : "None — Continue →")}
             </button>
           )}
           {q.required && Array.isArray(v) && v.length > 0 && (
-            <div style={{ fontSize: 12, color: A, marginTop: 4, fontWeight: 500 }}>
+            <div style={{ fontSize: 14, color: A_TEXTE, marginTop: 4, fontWeight: 600 }}>
               ✅ {v.length} {lang === "fr" ? `sélectionné${v.length > 1 ? "s" : ""}` : "selected"}
             </div>
           )}
@@ -962,9 +936,10 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
             maxLength={q.max_length || undefined}
             onChange={e => onChange(q.slug, e.target.value || null)}
             onBlur={e => onBlur && onBlur(q.slug, e.target.value)}
-            style={inputStyle}
+            className="afi-champ"
+            {...ariaChamp}
           />
-          <FieldError message={error} />
+          <FieldError message={error} id={idErreur} />
         </>
       )}
 
@@ -976,11 +951,12 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
             placeholder={ph}
             onChange={e => onChange(q.slug, e.target.value || null)}
             onBlur={e => onBlur && onBlur(q.slug, e.target.value)}
-            style={inputStyle}
+            className="afi-champ"
+            {...ariaChamp}
           />
-          <FieldError message={error} />
+          <FieldError message={error} id={idErreur} />
           {!error && !v && (
-            <div style={{ fontSize: 11, color: MUTED, marginTop: 5 }}>
+            <div className="afi-indication">
               {lang === "fr"
                 ? "Format: 123 rue des Érables, Québec, QC G1A 1A1"
                 : "Format: 123 Main St, Quebec City, QC G1A 1A1"}
@@ -993,21 +969,15 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
         <textarea value={v || ""} placeholder={ph}
           rows={Math.min(14, Math.max(3, String(v || "").split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 55)), 0)))}
           onChange={e => onChange(q.slug, e.target.value || null)}
-          style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${BORDER}`,
-            background: BG, fontFamily: "inherit", fontSize: 15, outline: "none",
-            resize: "vertical", boxSizing: "border-box", color: TEXT }} />
+          className="afi-champ" aria-labelledby={idTitre} />
       )}
 
       {q.type === "toggle" && (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div role="group" aria-labelledby={idTitre} style={{ display: "flex", gap: 8 }}>
           {[{ val: true, fr: "✅ Oui", en: "✅ Yes" }, { val: false, fr: "❌ Non", en: "❌ No" }].map(t => (
-            <button key={String(t.val)} onClick={() => onChange(q.slug, t.val)} style={{
-              flex: 1, padding: "10px 12px", borderRadius: 8, fontFamily: "inherit", fontSize: 15,
-              cursor: "pointer", fontWeight: 600, transition: "all 0.15s",
-              border: `1.5px solid ${v === t.val ? (t.val ? "#1a7a4a" : "#c0392b") : BORDER}`,
-              background: v === t.val ? (t.val ? "#e8f5ee" : "#fdecea") : BG,
-              color: v === t.val ? (t.val ? "#1a7a4a" : "#c0392b") : TEXT,
-            }}>{t[lang] || t.fr}</button>
+            <button type="button" key={String(t.val)} onClick={() => onChange(q.slug, t.val)}
+              className={"afi-choix afi-choix--oui-non " + (t.val ? "afi-choix--oui" : "afi-choix--non")}
+              aria-pressed={v === t.val} style={{ flex: 1 }}>{t[lang] || t.fr}</button>
           ))}
         </div>
       )}
@@ -1017,10 +987,14 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
       )}
 
       {q.type === "file" && !q.multiple && (
-        <div onClick={() => fRef.current?.click()} style={{
-          border: `2px dashed ${v ? A : BORDER}`, borderRadius: 8, padding: "18px 16px",
-          textAlign: "center", cursor: "pointer", background: v ? AL : BG, transition: "all 0.15s",
-        }}>
+        <>
+          <button type="button" onClick={() => fRef.current?.click()} className="afi-depot" data-rempli={v ? "true" : "false"}
+            aria-labelledby={idTitre + " depot-" + q.slug}>
+            <div aria-hidden="true" style={{ fontSize: 22, marginBottom: 8 }}>📎</div>
+            <div id={"depot-" + q.slug}>
+              {v ? `✅ ${v instanceof File ? v.name : v}` : (lang === "fr" ? "Cliquer pour sélectionner un fichier" : "Click to select a file")}
+            </div>
+          </button>
           <input ref={fRef} type="file" accept="image/jpeg,image/png,image/heic,image/heif,image/webp,.pdf" style={{ display: "none" }}
             onChange={e => {
               const f = e.target.files?.[0];
@@ -1038,26 +1012,16 @@ function QCard({ q, lang, answers, onChange, onBlur, fieldErrors, idx, total, ta
               }
               onChange(q.slug, f);
             }} />
-          <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
-          <div style={{ fontSize: 12, color: v ? A : MUTED, fontWeight: v ? 500 : 400 }}>
-            {v ? `✅ ${v instanceof File ? v.name : v}` : (lang === "fr" ? "Cliquer pour sélectionner un fichier" : "Click to select a file")}
-          </div>
-        </div>
+        </>
       )}
 
+      {/* Bouton (et non plus div) : se coche aussi au clavier. Même action qu'avant. */}
       {q.type === "checkbox_single" && (
-        <div onClick={() => onChange(q.slug, !v)} style={{
-          display: "flex", alignItems: "flex-start", gap: 11, cursor: "pointer",
-          padding: "11px 12px", borderRadius: 8,
-          border: `1.5px solid ${v ? A : BORDER}`, background: v ? AL : BG, transition: "all 0.15s",
-        }}>
-          <span style={{ width: 17, height: 17, borderRadius: 4, border: `2px solid ${v ? A : "#ccc"}`,
-            background: v ? A : "transparent", flexShrink: 0, marginTop: 1,
-            display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 10, fontWeight: 700 }}>
-            {v ? "✓" : ""}
-          </span>
-          <span style={{ fontSize: 14, lineHeight: 1.5, color: TEXT }}>{lbl}</span>
-        </div>
+        <button type="button" onClick={() => onChange(q.slug, !v)}
+          role="checkbox" aria-checked={!!v} className="afi-choix afi-choix--consentement">
+          <span className="afi-case" aria-hidden="true">{v ? "✓" : ""}</span>
+          <span>{lbl}</span>
+        </button>
       )}
     </div>
   );
@@ -1085,14 +1049,14 @@ function EtatEnvoi({ prepaye, lang }) {
   const etapes = etapesEnvoi(prepaye, fr);
   const courante = etapes.filter((e) => secondes >= e.des).pop();
   return (
-    <div role="status" aria-live="polite" data-etat-envoi style={{ marginTop: 16, padding: "14px 16px", borderRadius: 10,
-      background: AL, border: `1px solid ${A}`, textAlign: "left", fontSize: 14, color: TEXT, lineHeight: 1.5 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700 }}>
-        <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: "50%", border: `3px solid ${BORDER}`,
+    <div role="status" aria-live="polite" data-etat-envoi style={{ marginTop: 16, padding: "16px", borderRadius: 8,
+      background: "#F2F8FC", border: "1px solid #B9DCF0", borderLeft: `4px solid ${A}`, textAlign: "left", fontSize: 15, color: TEXT, lineHeight: 1.5 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 700, fontFamily: "var(--afi-police-titre)" }}>
+        <span aria-hidden="true" className="afi-tourne" style={{ width: 18, height: 18, borderRadius: "50%", border: `3px solid ${BORDER}`,
           borderTopColor: A, display: "inline-block", animation: "afi-tourne 0.9s linear infinite", flexShrink: 0 }} />
         {courante.texte}
       </div>
-      <div style={{ marginTop: 6, fontSize: 13, color: MUTED }}>
+      <div style={{ marginTop: 8, fontSize: 14, color: MUTED }}>
         {fr
           ? `Cette étape peut prendre jusqu'à 20 secondes${prepaye ? ", puis vous serez dirigé vers la page de paiement" : ""}. Merci de ne pas fermer la page ni cliquer de nouveau.`
           : `This can take up to 20 seconds${prepaye ? ", then you will be taken to the payment page" : ""}. Please do not close the page or click again.`}
@@ -1118,41 +1082,68 @@ function EcranPaiement({ paiement, ticketId, lang }) {
   }, [reste, paiement.url]);
   const total = paiement.total != null ? dollars(paiement.total, lang) : null;
   return (
-    <div style={{ fontFamily: "system-ui,sans-serif", maxWidth: 560, margin: "0 auto", padding: 24, textAlign: "center", paddingTop: 60 }}>
-      <div style={{ fontSize: 48, marginBottom: 14 }}>💳</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: TEXT, marginBottom: 10 }}>
+    <Cadre lang={lang}>
+    <div className="afi-fin">
+      <div className="afi-fin__icone" aria-hidden="true">💳</div>
+      <h1 className="afi-fin__titre">
         {paiement.url ? (fr ? "Dernière étape : le paiement" : "Last step: payment") : (fr ? "Demande reçue!" : "Request received!")}
-      </div>
-      <div style={{ fontSize: 14, color: MUTED, lineHeight: 1.6, marginBottom: 18 }}>
+      </h1>
+      <p className="afi-fin__texte">
         {paiement.url
           ? (fr ? "Votre demande est enregistrée. Elle sera planifiée dès que le paiement sera reçu."
               : "Your request is saved. It will be scheduled as soon as payment is received.")
           : (fr ? "Votre demande est enregistrée. Ce service est payable à la réservation : notre équipe vous enverra le lien de paiement sous peu. La demande sera planifiée dès le paiement reçu."
               : "Your request is saved. This service is payable upon booking: our team will send you the payment link shortly. It will be scheduled once payment is received.")}
-      </div>
+      </p>
       {paiement.url && (
         <>
-          <a href={paiement.url} style={{ display: "inline-block", padding: "14px 34px", borderRadius: 10, background: A, color: "#fff",
-            textDecoration: "none", fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(14,95,138,0.3)" }}>
+          <a href={paiement.url} className="afi-bouton afi-bouton--principal">
             {fr ? `Payer maintenant${total ? ` — ${total}` : ""}` : `Pay now${total ? ` — ${total}` : ""}`}
           </a>
-          {total && <div style={{ fontSize: 12, color: MUTED, marginTop: 8 }}>{fr ? "Taxes incluses" : "Taxes included"}</div>}
-          <div role="status" aria-live="polite" style={{ fontSize: 13, color: MUTED, marginTop: 14 }}>
+          {total && <div style={{ fontSize: 13, color: MUTED, marginTop: 8 }}>{fr ? "Taxes incluses" : "Taxes included"}</div>}
+          <div role="status" aria-live="polite" style={{ fontSize: 14, color: MUTED, marginTop: 16 }}>
             {reste > 0
               ? (fr ? `Redirection vers la page de paiement sécurisée dans ${reste} s…` : `Redirecting to the secure payment page in ${reste} s…`)
               : (fr ? "Ouverture de la page de paiement sécurisée… (quelques secondes)" : "Opening the secure payment page… (a few seconds)")}
           </div>
-          <div style={{ fontSize: 12, color: MUTED, marginTop: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: MUTED, marginTop: 8, lineHeight: 1.5, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
             {fr
               ? "La page de paiement peut prendre quelques secondes à s'afficher. Ne fermez pas cette fenêtre. Un lien de paiement vous est aussi envoyé par courriel."
               : "The payment page may take a few seconds to load. Do not close this window. A payment link is also sent to you by email."}
           </div>
         </>
       )}
-      <div style={{ marginTop: 22, display: "inline-block", padding: "8px 20px", background: AL, border: `1px solid ${A}`,
-        borderRadius: 20, fontSize: 13, color: A, fontWeight: 600 }}>
-        🎫 {ticketId}
+      <div style={{ marginTop: 24 }}>
+        <span className="afi-dossier">🎫 {ticketId}</span>
       </div>
+    </div>
+    </Cadre>
+  );
+}
+
+// ─── CADRE (en-tête avec logo, pied de page avec les coordonnées) ─────────────
+// Coordonnées : celles que le formulaire donne déjà (messages d'erreur et de prix sur mesure).
+function Cadre({ lang, children }) {
+  const fr = lang !== "en";
+  return (
+    <div className="afi-page">
+      <header className="afi-entete">
+        <div className="afi-conteneur">
+          <picture>
+            <source srcSet={logoAfiWebp} type="image/webp" />
+            <img className="afi-entete__logo" src={logoAfiPng} width="277" height="168"
+              alt={fr ? "Piscines AFI — Aqua Fibre Innovation" : "AFI Pools — Aqua Fibre Innovation"} />
+          </picture>
+        </div>
+      </header>
+      <main className="afi-contenu">
+        <div className="afi-conteneur">{children}</div>
+      </main>
+      <footer className="afi-pied">
+        <div className="afi-conteneur">
+          <div className="afi-pied__nom">Aqua Fibre Innovation</div>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -1304,14 +1295,19 @@ export default function AFIForm() {
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
 
-      // Auto-scroll to next question
+      // Défilement vers la question suivante : seulement quand un seul geste répond à la question
+      // (choix, interrupteur, case unique). Jamais pendant la saisie (texte, courriel, téléphone,
+      // adresse, date, fichiers, choix multiples) : chaque touche faisait défiler la page et le
+      // client ne voyait plus ce qu'il écrivait.
+      const questionCourante = QUESTIONS.find(q => q.slug === slug);
+      if (!questionCourante || !DEFILEMENT_APRES.has(questionCourante.type)) return next;
       setTimeout(() => {
         const visibleNow = QUESTIONS.filter(q => q.show_if(next));
         const currentIdx = visibleNow.findIndex(q => q.slug === slug);
         const nextQ = visibleNow[currentIdx + 1];
         if (nextQ) {
           const el = document.getElementById("q-" + nextQ.slug);
-          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (el) el.scrollIntoView({ behavior: defilement(), block: "start" });
         }
       }, 80);
       return next;
@@ -1346,7 +1342,7 @@ export default function AFIForm() {
       const firstErrorSlug = visible.find(q => fieldErrors[q.slug] || getFieldError(q, answers[q.slug], lang))?.slug;
       if (firstErrorSlug) {
         const el = document.getElementById("q-" + firstErrorSlug);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (el) el.scrollIntoView({ behavior: defilement(), block: "center" });
       }
       return;
     }
@@ -1467,64 +1463,67 @@ export default function AFIForm() {
   );
 
   if (submitted) return (
-    <div style={{ fontFamily: "system-ui,sans-serif", maxWidth: 560, margin: "0 auto", padding: 24, textAlign: "center", paddingTop: 60 }}>
-      <div style={{ fontSize: 48, marginBottom: 14 }}>✅</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: TEXT, marginBottom: 10 }}>
+    <Cadre lang={lang}>
+    <div className="afi-fin">
+      <div className="afi-fin__icone" aria-hidden="true">✅</div>
+      <h1 className="afi-fin__titre">
         {lang === "fr" ? "Demande reçue!" : "Request received!"}
-      </div>
-      <div style={{ fontSize: 14, color: MUTED, lineHeight: 1.6, marginBottom: 20 }}>
+      </h1>
+      <p className="afi-fin__texte">
         {exemption
           ? (lang === "fr"
             ? "Vous avez indiqué que ce service est déjà payé ou inclus : notre équipe le vérifie avant de planifier votre demande. Si un paiement est requis, vous recevrez le lien de paiement par courriel ou par texto."
             : "You indicated this service is already paid or included: our team will verify it before scheduling your request. If payment is required, you will receive the payment link by email or text message.")
           : (lang === "fr" ? "Notre équipe traitera votre demande dans les plus brefs délais. Vous recevrez une confirmation par courriel." : "Our team will process your request as soon as possible. You will receive a confirmation by email.")}
-      </div>
-      <div style={{ display: "inline-block", padding: "8px 20px", background: AL, border: `1px solid ${A}`,
-        borderRadius: 20, fontSize: 13, color: A, fontWeight: 600 }}>
-        🎫 {ticketId}
-      </div>
-      <div style={{ marginTop: 24 }}>
-        <button onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setExemption(false); setPrefillNote(false); setJeton(""); setLienExpire(false); }} style={{
-          padding: "9px 20px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG,
-          fontFamily: "inherit", fontSize: 13, cursor: "pointer", color: MUTED,
-        }}>
+      </p>
+      <span className="afi-dossier">🎫 {ticketId}</span>
+      <div style={{ marginTop: 32 }}>
+        <button type="button" onClick={() => { setAnswers({}); setFieldErrors({}); setSubmitted(false); setExemption(false); setPrefillNote(false); setJeton(""); setLienExpire(false); }}
+          className="afi-bouton afi-bouton--secondaire">
           {lang === "fr" ? "Nouvelle demande" : "New request"}
         </button>
       </div>
     </div>
+    </Cadre>
   );
 
+  // Bandeaux d'information (prérempli, lien expiré, Fast Track) : même gabarit, couleurs selon le ton.
+  const bandeau = (ton) => ({
+    borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 15, lineHeight: 1.5,
+    ...(ton === "info"
+      ? { background: "#F2F8FC", border: "1px solid #B9DCF0", borderLeft: `4px solid ${A}`, color: TEXT }
+      : { background: "#FFFAEB", border: "1px solid #FEC84B", borderLeft: "4px solid #DC6803", color: "#7A2E0E" }),
+  });
+
   return (
-    <div style={{ fontFamily: "system-ui,sans-serif", maxWidth: 560, margin: "0 auto", padding: "0 14px 60px" }}>
-      <div style={{ textAlign: "center", padding: "22px 0 18px" }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: A, letterSpacing: -0.5 }}>◈ Aqua Fibre Innovation</div>
-        <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>
-          {lang === "fr" ? "Formulaire de demande de service" : "Service Request Form"}
+    <Cadre lang={lang}>
+      <div className="afi-titre">
+        <p className="afi-titre__marque">Aqua Fibre Innovation</p>
+        <h1 className="afi-titre__h1">{lang === "en" ? "Service request" : "Demande d'assistance"}</h1>
+      </div>
+      <div className="afi-progression">
+        <div className="afi-progression__piste" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}
+          aria-label={lang === "en" ? "Form progress" : "Progression du formulaire"}>
+          <div className="afi-progression__barre" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="afi-progression__texte">
+          {answeredCount}/{visible.length} {lang === "fr" ? "répondu" : "answered"} · {progress}%
         </div>
       </div>
-      <div style={{ height: 3, background: BORDER, borderRadius: 2, marginBottom: 20 }}>
-        <div style={{ height: "100%", width: `${progress}%`, background: A, borderRadius: 2, transition: "width 0.4s ease" }} />
-      </div>
-      <div style={{ fontSize: 11, color: MUTED, textAlign: "right", marginBottom: 16 }}>
-        {answeredCount}/{visible.length} {lang === "fr" ? "répondu" : "answered"} · {progress}%
-      </div>
       {lienExpire && (
-        <div role="status" style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 10, padding: "12px 16px",
-          marginBottom: 16, fontSize: 13, color: "#664d03", lineHeight: 1.5 }}>
+        <div role="status" style={bandeau("attention")}>
           {lang === "en" ? "This link has expired: simply fill in the form." : "Lien expiré, remplis simplement le formulaire."}
         </div>
       )}
       {prefillNote && (
-        <div style={{ background: AL, border: `1px solid ${A}`, borderRadius: 10, padding: "12px 16px",
-          marginBottom: 16, fontSize: 13, color: TEXT, lineHeight: 1.5 }}>
+        <div style={bandeau("info")}>
           {lang === "fr"
             ? "Certaines réponses ont été préremplies à partir de votre diagnostic. Vérifiez-les et modifiez-les au besoin avant d'envoyer."
             : "Some answers were pre-filled from your diagnosis. Please check and edit them before submitting."}
         </div>
       )}
       {answers.client_type === "employee" && (
-        <div style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 10, padding: "12px 16px",
-          marginBottom: 16, fontSize: 13, color: "#664d03", lineHeight: 1.5 }}>
+        <div style={bandeau("attention")}>
           <strong>⚡ Mode Fast Track Employé</strong><br />
           {lang === "fr"
             ? "Remplissez ce formulaire au nom de votre client. Fournissez le minimum d'information pour créer le ticket rapidement."
@@ -1532,7 +1531,7 @@ export default function AFIForm() {
         </div>
       )}
       {chargementLien && (
-        <div role="status" aria-live="polite" style={{ textAlign: "center", padding: "28px 0", fontSize: 14, color: MUTED }}>
+        <div role="status" aria-live="polite" style={{ textAlign: "center", padding: "32px 0", fontSize: 15, color: MUTED }}>
           {lang === "en" ? "Loading your request…" : "Chargement de ta demande…"}
         </div>
       )}
@@ -1546,24 +1545,18 @@ export default function AFIForm() {
 
       {/* Submit error banner */}
       {fieldErrors._submit && (
-        <div style={{
-          margin: "12px 0", padding: "12px 16px", borderRadius: 10,
+        <div role="alert" style={{
+          margin: "16px 0", padding: "12px 16px", borderRadius: 8,
           background: ERROR_BG, border: `1.5px solid ${ERROR_BORDER}`,
-          fontSize: 13, color: ERROR_COLOR, fontWeight: 500, lineHeight: 1.5,
+          fontSize: 15, color: ERROR_COLOR, fontWeight: 500, lineHeight: 1.5,
         }}>
           ⚠️ {fieldErrors._submit}
         </div>
       )}
 
       {canSubmit && (
-        <div style={{ textAlign: "center", marginTop: 20, padding: "20px 0" }}>
-          <button onClick={handleSubmit} disabled={submitting} style={{
-            padding: "14px 40px", borderRadius: 10, background: submitting ? "#aaa" : A,
-            color: "white", border: "none", fontFamily: "inherit", fontSize: 15,
-            fontWeight: 700, cursor: submitting ? "not-allowed" : "pointer",
-            boxShadow: submitting ? "none" : "0 4px 14px rgba(14,95,138,0.3)",
-            transition: "all 0.2s",
-          }}>
+        <div className="afi-envoi">
+          <button type="button" onClick={handleSubmit} disabled={submitting} className="afi-bouton afi-bouton--principal">
             {submitting
               ? (lang === "fr" ? "Envoi en cours..." : "Submitting...")
               : payeALEnvoi(answers)
@@ -1573,12 +1566,12 @@ export default function AFIForm() {
           {submitting
             ? <EtatEnvoi prepaye={payeALEnvoi(answers)} lang={lang} />
             : (
-              <div style={{ fontSize: 11, color: MUTED, marginTop: 10 }}>
+              <div className="afi-envoi__note">
                 🔒 {lang === "fr" ? "Vos informations sont sécurisées et confidentielles" : "Your information is secure and confidential"}
               </div>
             )}
         </div>
       )}
-    </div>
+    </Cadre>
   );
 }
