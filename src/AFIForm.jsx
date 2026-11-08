@@ -524,6 +524,9 @@ function defilement() {
   catch (_e) { return "smooth"; }
 }
 
+// Types de question où un seul geste donne la réponse : on peut passer à la suivante.
+const DEFILEMENT_APRES = new Set(["radio", "toggle", "checkbox_single"]);
+
 function isAnswered(v) {
   if (v == null) return false;
   if (Array.isArray(v)) return v.length > 0;
@@ -1139,11 +1142,6 @@ function Cadre({ lang, children }) {
       <footer className="afi-pied">
         <div className="afi-conteneur">
           <div className="afi-pied__nom">Aqua Fibre Innovation</div>
-          <div>{fr ? "Besoin d'aide? Appelez-nous :" : "Need help? Call us:"}</div>
-          <div className="afi-pied__tel">
-            <a href="tel:+18007087789">1-800-708-7789{fr ? " (sans frais)" : " (toll-free)"}</a>
-            <a href="tel:+14188710658,2">{fr ? "(418) 871-0658 poste 2" : "(418) 871-0658 ext. 2"}</a>
-          </div>
         </div>
       </footer>
     </div>
@@ -1297,7 +1295,12 @@ export default function AFIForm() {
       // Clear error on change (re-validate on blur)
       setFieldErrors(prev => ({ ...prev, [slug]: null }));
 
-      // Auto-scroll to next question
+      // Défilement vers la question suivante : seulement quand un seul geste répond à la question
+      // (choix, interrupteur, case unique). Jamais pendant la saisie (texte, courriel, téléphone,
+      // adresse, date, fichiers, choix multiples) : chaque touche faisait défiler la page et le
+      // client ne voyait plus ce qu'il écrivait.
+      const questionCourante = QUESTIONS.find(q => q.slug === slug);
+      if (!questionCourante || !DEFILEMENT_APRES.has(questionCourante.type)) return next;
       setTimeout(() => {
         const visibleNow = QUESTIONS.filter(q => q.show_if(next));
         const currentIdx = visibleNow.findIndex(q => q.slug === slug);

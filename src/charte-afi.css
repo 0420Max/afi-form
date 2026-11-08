@@ -229,7 +229,6 @@ input[type="date"].afi-champ { min-height: 48px; }
 .afi-pied { background: var(--afi-carte); border-top: 1px solid var(--afi-bord); }
 .afi-pied .afi-conteneur { padding-top: 24px; padding-bottom: 24px; text-align: center; font-size: 14px; line-height: 1.6; color: var(--afi-texte-2); }
 .afi-pied__nom { font-family: var(--afi-police-titre); font-weight: 600; color: var(--afi-marine); margin-bottom: 4px; }
-.afi-pied__tel { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 16px; }
 .afi-pied a {
   display: inline-flex; align-items: center; min-height: 44px; color: var(--afi-bleu-fonce);
   font-weight: 600; text-decoration: underline; text-underline-offset: 3px;
